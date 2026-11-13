@@ -1,0 +1,1320 @@
+import GoogleLinkAnnouncement from './components/GoogleLinkAnnouncement';
+import YouTubeAccountPanel from './components/YouTubeAccountPanel';
+import SearchFilters from './components/SearchFilters';
+import {searchFilterParams} from '../search-filters.mjs';
+import {spreadHome} from './lib/homeOrder.mjs';
+import {queueIndex,shuffledQueue} from './lib/playlistPlayback.mjs';
+import {loadHomeSnapshot,saveHomeSnapshot} from './lib/homeSnapshot.mjs';
+import {useSiteAccount} from './components/AccountGate';
+import { learnSearch, learnInteraction, learnedTerms } from './lib/localRecommendations.mjs';
+import { prioritizeUnshown } from './lib/recommendationImpressions.mjs';
+import { saveShortsInterest, saveVideoHashtags } from './lib/shortsInterests.mjs';
+import { loadWatchHistories, splitWatchHistory } from './lib/watchHistory.mjs';
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Routes, Route, useNavigate, useLocation, useSearchParams, Link } from 'react-router-dom';
+import Navbar from './components/Navbar';
+import Sidebar from './components/Sidebar';
+import CategoryBar from './components/CategoryBar';
+import VideoCard from './components/VideoCard';
+import ShortsShelf, { ShortsContext, shortsQuery } from './components/ShortsShelf';
+import ShortsViewer from './components/ShortsViewer';
+import VideoSkeleton from './components/VideoSkeleton';
+import TopProgressBar from './components/TopProgressBar';
+import VideoPlayer from './components/VideoPlayer';
+import FloatingPlayerFrame from './components/FloatingPlayerFrame';
+import CompactError from './components/CompactError';
+import ChannelPage from './components/ChannelPage';
+import SubscriptionsFeed from './components/SubscriptionsFeed';
+import LibraryPage from './components/LibraryPage';
+import MyPage from './components/MyPage';
+import { useDeviceProfile } from './lib/deviceProfile';
+import HistoryPage from './components/HistoryPage';
+import DebugAPI from './components/DebugAPI';
+import LicensePage from './components/LicensePage';
+import AddToPlaylistModal from './components/AddToPlaylistModal';
+import DetectedSearchHeader from './components/DetectedSearchHeader';
+import SearchChannelCard from './components/SearchChannelCard';
+import { Video, ChannelSubscription, WatchHistoryItem, UserPlaylist, ShortVideo, UserInfo, SearchChannel } from './types';
+import { localAI } from './lib/intelligence';
+import { Loader2, AlertCircle, User, Home, Zap, PlaySquare, Folder } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { fetchJSON, parseYouTubeUrl } from './utils';
+
+declare global {
+  interface Window {
+    google: any;
+  }
+}
+
+export default function MainApp({socialContent}:{socialContent?:React.ReactNode}={}) {
+  const isSocial=!!socialContent;
+  const inactiveRequests=useRef(new AbortController());
+  const navigate = useNavigate();
+  const deviceProfile = useDeviceProfile();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+
+  const [view, setView] = useState<'home' | 'search' | 'video' | 'shorts' | 'channel' | 'subscriptions' | 'library' | 'history' | 'debug' | 'license'>('home');
+  const siteAccount = useSiteAccount();
+  const [searchQuery, setSearchQuery] = useState('');
+  const [mobileSearchFilter,setMobileSearchFilter] = useState('すべて');
+  const [phoneLayout,setPhoneLayout] = useState(()=>window.innerWidth<=640);
+  useEffect(()=>{const resize=()=>setPhoneLayout(window.innerWidth<=640);window.addEventListener('resize',resize);return()=>window.removeEventListener('resize',resize);},[]);
+  useEffect(()=>setMobileSearchFilter('すべて'),[location.search]);
+
+  const [searchChannels, setSearchChannels] = useState<SearchChannel[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState('すべて');
+  const [homeShorts,setHomeShorts] = useState<{category:string;videos:Video[]}>({category:'',videos:[]});
+  const [videos, setVideos] = useState<Video[]>([]);
+  const [currentVideoId, setCurrentVideoId] = useState<string | null>(null);
+  const [currentPlaylistId, setCurrentPlaylistId] = useState<string | null>(null);
+  const [selectedChannelId, setSelectedChannelId] = useState<string | null>(null);
+  const [authFlow, setAuthFlow] = useState<{ userCode: string, verificationUrl: string; interval?:number; expiresAt?:number } | null>(null);
+  const [isPolling, setIsPolling] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const youtubeGeneration=useRef(0);
+  const [youtubeFeatureErrors,setYoutubeFeatureErrors]=useState<string[]>([]);
+  const [youtubeLiked,setYoutubeLiked]=useState<Video[]>([]);
+  const [youtubeActionError,setYoutubeActionError]=useState('');
+  useEffect(()=>{const show=(event:Event)=>setYoutubeActionError(String((event as CustomEvent).detail||''));window.addEventListener('xerox-youtube-action-error',show);return()=>window.removeEventListener('xerox-youtube-action-error',show);},[]);
+  const personalHomeCursor=useRef('');
+  const [activeMix,setActiveMix]=useState<{id:string;cursor:string;linked:boolean}|null>(null);
+  const mixLoading=useRef(false);
+  const activeMixRef=useRef(activeMix);activeMixRef.current=activeMix;
+  const [mixBusy,setMixBusy]=useState(false);
+  const [openingMix,setOpeningMix]=useState('');
+  const mixOpenRequest=useRef(0);
+  useEffect(()=>{mixOpenRequest.current++;setOpeningMix('');},[location.pathname,location.search]);
+  
+  // Cache for static video/channel data
+  const [videoCache, setVideoCache] = useState<Record<string, Video | ShortVideo>>(() => {
+    try {
+      const saved = localStorage.getItem('xerox_video_cache');
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  // AI Analysis Cache
+  const [aiInterests, setAiInterests] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('xerox_ai_interests');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // Auth state
+  const [userInfo,setUserInfo]=useState<UserInfo|null>(()=>{try{if(localStorage.getItem('xerox_youtube_linked')==='1'){const user=JSON.parse(localStorage.getItem('xerox_user_info')||'null');if(typeof user?.name==='string')return user;}}catch{}return null;});
+  const [googleStatusReady,setGoogleStatusReady]=useState(false);
+  const homeSnapshotScope=(siteAccount?.username||'guest')+(userInfo?':youtube':'');
+
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState('');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(
+    window.innerWidth >= 1280
+  );
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768 && !window.matchMedia('(orientation: landscape)').matches);
+
+  const searchContinuation=useRef({key:'',next:''});
+  const recommendationRequestIdRef = useRef(0);
+
+  useEffect(() => {
+    const path = location.pathname;
+    if (path !== '/') {
+      recommendationRequestIdRef.current++;
+      setLoading(false);
+      setLoadingMore(false);
+      isFetchingMore.current = false;
+    }
+    if (/^\/(instagram|tiktok)(\/|$)/.test(path)){inactiveRequests.current.abort();setGoogleStatusReady(false);return;}
+    if(inactiveRequests.current.signal.aborted)inactiveRequests.current=new AbortController();
+    if (path === '/') {
+      const category = searchParams.get('category') || 'すべて';
+      setSelectedCategory(category);
+      setPage(1);
+      isFetchingMore.current = false;
+      setLoadingMore(false);
+      setView('home');
+      if (category === 'すべて') fetchRecommendations(1, false);
+      else fetchHomeCategory(category, 1, false);
+    } else if (path === '/shorts' || path.startsWith('/shorts/')) {
+      setCurrentVideoId(null);
+      setCurrentPlaylistId(null);
+      setView('shorts');
+    } else if (path === '/search') {
+      setView('search');
+      setSearchQuery('');
+      setVideos([]);
+      setSearchChannels([]);
+      setError('');
+    } else if (path === '/results') {
+      const q = searchParams.get('search_query');
+      if (q) {
+        setSearchQuery(q);
+        setView('search');
+        setPage(1);
+        fetchSearch(q, 1, false);
+      }
+    } else if (path === '/watch') {
+      const v = searchParams.get('v');
+      const list = searchParams.get('list');
+      if (v) {
+        setCurrentVideoId(v);
+        setCurrentPlaylistId(list);
+        setView('video');
+      }
+    } else if (path.startsWith('/channel/')) {
+      const parts = path.split('/');
+      const channelId = parts[2];
+      setSelectedChannelId(channelId);
+      setView('channel');
+    } else if (path === '/feed/subscriptions') {
+      setView('subscriptions');
+    } else if (path === '/feed/library') {
+      setView('library');
+    } else if (path === '/feed/history') {
+      setView('history');
+    } else if (path === '/debug/api') {
+      setView('debug');
+    } else if (path === '/aistudio') {
+      navigate('/', { replace: true });
+    } else if (path === '/license') {
+      setView('license');
+    }
+  }, [location.pathname, searchParams]);
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+  }, [location.pathname, location.search]);
+
+  useEffect(() => {
+    if (view === 'search' && searchQuery) {
+      document.title = `${searchQuery} - XeroxYT-NTv7 for GAS`;
+    } else if (view === 'shorts') {
+      document.title = 'ショート - XeroxYT-NTv7 for GAS';
+    } else if (view === 'home') {
+      document.title = 'XeroxYT-NTv7 for GAS';
+    } else if (view === 'subscriptions') {
+      document.title = '登録チャンネル - XeroxYT-NTv7 for GAS';
+    } else if (view === 'library') {
+      document.title = 'ライブラリ - XeroxYT-NTv7 for GAS';
+    } else if (view === 'history') {
+      document.title = '履歴 - XeroxYT-NTv7 for GAS';
+    } else if (view === 'license') {
+      document.title = 'ライセンス & 製作者クレジット - XeroxYT-NTv7 for GAS';
+    }
+  }, [view, searchQuery]);
+
+  useEffect(() => {
+    if (view === 'home') {
+      const width = window.innerWidth;
+      if (width >= 1280) {
+        setIsSidebarOpen(true);
+      } else {
+        setIsSidebarOpen(false);
+      }
+    } else {
+      setIsSidebarOpen(false);
+    }
+  }, [view]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      const width = window.innerWidth;
+      const isLandscape = window.matchMedia('(orientation: landscape)').matches;
+      const mobile = width < 768 && !isLandscape;
+      setIsMobile(mobile);
+      if (view === 'home') {
+        if (width >= 1280) {
+          setIsSidebarOpen(true);
+        } else {
+          setIsSidebarOpen(false);
+        }
+      } else {
+        setIsSidebarOpen(false);
+      }
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [view]);
+
+  // 無限スクロール用ページ制御
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const isFetchingMore = useRef(false);
+
+  // モーダル
+  const [playlistModalVideo, setPlaylistModalVideo] = useState<Video | null>(null);
+
+  // 連続再生キュー
+  const [currentPlaylistQueue, setCurrentPlaylistQueue] = useState<Video[]>([]);
+  const [playlistQueueIndex, setPlaylistQueueIndex] = useState<number>(-1);
+  const [queueTitle,setQueueTitle]=useState('再生リスト');
+  const [originalQueue,setOriginalQueue]=useState<Video[]>([]);
+  const [queueShuffle,setQueueShuffle]=useState(false);
+  const [queueRepeat,setQueueRepeat]=useState<'off'|'all'|'one'>('off');
+  const [queuePanelOpen,setQueuePanelOpen]=useState(()=>window.innerWidth>640);
+
+
+  // Subscriptions state saved in LocalStorage
+  const [subscriptions, setSubscriptions] = useState<ChannelSubscription[]>(() => {
+    try {
+      const saved = localStorage.getItem('xerox_subscriptions');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // Watch history
+  const [watchHistory, setWatchHistory] = useState<WatchHistoryItem[]>(() => loadWatchHistories().videos);
+  const [shortHistory, setShortHistory] = useState<WatchHistoryItem[]>(() => loadWatchHistories().shorts);
+
+  const [youtubeHistory, setYoutubeHistory] = useState<WatchHistoryItem[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+
+  // User Playlists saved in LocalStorage
+  const [playlists, setPlaylists] = useState<UserPlaylist[]>(() => {
+    try {
+      const saved = localStorage.getItem('xerox_user_playlists');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // YouTube Authenticated Features State
+  const [youtubePlaylists, setYoutubePlaylists] = useState<any[]>([]);
+  const [watchLaterVideos, setWatchLaterVideos] = useState<any[]>([]);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [unreadNotificationsCount, setUnreadNotificationsCount] = useState<number>(0);
+  const [showNotificationsMenu, setShowNotificationsMenu] = useState<boolean>(false);
+
+  const fetchYoutubeAuthData = async () => {
+    const generation=youtubeGeneration.current;
+    void fetchJSON('/api/user/channel-info',{signal:inactiveRequests.current.signal}).then(profile=>{if(generation===youtubeGeneration.current)setUserInfo(profile);}).catch((error:any)=>{if(generation===youtubeGeneration.current)setAuthError(error.message);});
+    const jobs=[['再生リスト','/api/user/playlists',setYoutubePlaylists],['後で見る','/api/user/watch-later',setWatchLaterVideos],['高評価','/api/user/liked-videos',setYoutubeLiked],['通知','/api/user/notifications',setNotifications]] as const;
+    const results=await Promise.allSettled(jobs.map(async([name,path,setter])=>{const data=await fetchJSON(path,{signal:inactiveRequests.current.signal});if(!Array.isArray(data))throw new Error(name);if(generation===youtubeGeneration.current)setter(data);return name;}));
+    if(generation!==youtubeGeneration.current)return;
+    setYoutubeFeatureErrors(results.flatMap((result,index)=>result.status==='rejected'?[jobs[index][0]]:[]));
+    try{const channels=await fetchJSON('/api/user/subscriptions',{signal:inactiveRequests.current.signal});if(generation===youtubeGeneration.current&&Array.isArray(channels))setSubscriptions(channels.map(c=>({id:c.id,title:c.title,avatar:c.avatar})));}catch{}
+  };
+
+  useEffect(() => {
+    if (view === 'history') {
+      if (userInfo) {
+        setLoadingHistory(true);
+        fetchJSON('/api/user/history')
+          .then((data) => {
+            if (Array.isArray(data)) {
+              setYoutubeHistory(data.map((v: any) => ({
+                videoId: v.videoId,
+                title: v.title,
+                author: v.author,
+                authorAvatar: v.authorAvatar,
+                thumbnailUrl: v.videoThumbnails?.[0]?.url || `https://i.ytimg.com/vi/${v.videoId}/hqdefault.jpg`,
+                lengthSeconds: v.lengthSeconds || 0,
+                viewCount: v.viewCount || 0,
+                timestamp: v.timestamp || Date.now(),
+                type: v.isShort?'short':'video'
+              })));
+            }
+          })
+          .catch((err) => setYoutubeActionError('YouTubeの履歴を取得できませんでした。'+err.message))
+          .finally(() => setLoadingHistory(false));
+      } else {
+        setYoutubeHistory([]);
+      }
+    }
+  }, [view, !!userInfo, userInfo?.sub]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('xerox_subscriptions', JSON.stringify(subscriptions));
+    } catch (e) {
+      console.error(e);
+    }
+  }, [subscriptions]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('xerox_watch_history', JSON.stringify(watchHistory));
+      localStorage.setItem('xerox_short_history', JSON.stringify(shortHistory));
+      window.dispatchEvent(new CustomEvent('xerox-history-change', { detail: [...watchHistory, ...shortHistory] }));
+    } catch (e) {
+      console.error(e);
+    }
+  }, [watchHistory, shortHistory]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('xerox_user_playlists', JSON.stringify(playlists));
+    } catch (e) {
+      console.error(e);
+    }
+  }, [playlists]);
+
+  useEffect(() => {
+    const onRemote = (event: Event) => { const split = splitWatchHistory((event as CustomEvent<WatchHistoryItem[]>).detail); setWatchHistory(split.videos); setShortHistory(split.shorts); };
+    window.addEventListener('xerox-history-remote', onRemote);
+    return () => window.removeEventListener('xerox-history-remote', onRemote);
+  }, []);
+
+  // 閲覧履歴（通常動画）記録
+  const handleRecordHistory = (video: Video) => {
+    if (video.isShort || (videoCache[video.videoId!] as Video)?.isShort || /#shorts(?![\p{L}\p{N}_])/iu.test(video.title || '')) { handleRecordShortHistory({ ...video, videoId: video.videoId! }); return; }
+    saveVideoHashtags(video);
+    setWatchHistory(prev => {
+      const filtered = prev.filter(item => item.videoId !== video.videoId);
+      const newItem: WatchHistoryItem = {
+        videoId: video.videoId,
+        title: video.title,
+        author: video.author,
+        authorAvatar: video.authorAvatar,
+        thumbnailUrl: video.videoThumbnails?.[0]?.url || `https://i.ytimg.com/vi/${video.videoId}/hqdefault.jpg`,
+        lengthSeconds: video.lengthSeconds,
+        viewCount: video.viewCount,
+        timestamp: Date.now(),
+        type: 'video'
+      };
+      return [newItem, ...filtered].slice(0, 50);
+    });
+  };
+
+  // 閲覧履歴（ショート動画）記録
+  const handleRecordShortHistory = (short: ShortVideo) => {
+    setShortHistory(prev => {
+      const filtered = prev.filter(item => item.videoId !== short.videoId);
+      const newItem: WatchHistoryItem = {
+        videoId: short.videoId,
+        title: short.title,
+        author: short.author,
+        authorAvatar: short.authorAvatar,
+        thumbnailUrl: `https://i.ytimg.com/vi/${short.videoId}/hqdefault.jpg`,
+        timestamp: Date.now(),
+        type: 'short'
+      };
+      return [newItem, ...filtered].slice(0, 50);
+    });
+  };
+
+  const subscriptionRequests=useRef(new Set<string>());
+  const handleToggleSubscribe = async (channel: ChannelSubscription) => {
+    if(subscriptionRequests.current.has(channel.id))return;
+    const matches=(item:ChannelSubscription)=>item.id===channel.id||item.title===channel.title;
+    const previous=subscriptions.find(matches),generation=youtubeGeneration.current;
+    setSubscriptions(list=>previous?list.filter(item=>!matches(item)):[...list,channel]);
+    if(!userInfo)return;
+    subscriptionRequests.current.add(channel.id);
+    try{await fetchJSON('/api/user/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:previous?'unsubscribe':'subscribe',channelId:channel.id})});}
+    catch(error:any){if(generation===youtubeGeneration.current){setSubscriptions(list=>previous?[...list.filter(item=>!matches(item)),previous]:list.filter(item=>!matches(item)));window.dispatchEvent(new CustomEvent('xerox-youtube-action-error',{detail:error.message}));}}
+    finally{subscriptionRequests.current.delete(channel.id);}
+  };
+
+  // 閲覧履歴からキーワード抽出（登録チャンネルや高評価動画、視聴履歴を深層分析）
+  const getHistoryKeywords = (): string => {
+    const historyData = watchHistory.slice(0, 20);
+    
+    // AIの提案履歴があればそれを優先的に含める
+    let baseKeywords = aiInterests.slice(0, 5).join(' ');
+    
+    // ローカルAIの分析結果も加味する (独自AIによる分析)
+    const localKeywords = localAI.getTopSuggestedQueries(8).join(' ');
+    if (localKeywords) baseKeywords += ' ' + localKeywords;
+
+    if (historyData.length === 0 && !searchQuery && !baseKeywords && subscriptions.length === 0) return "";
+
+    // タイトルから単語を抽出
+    const words = historyData
+      .map(h => h.title)
+      .join(' ')
+      .replace(/[【】\[\]\(\)（）!！?？、。]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length >= 2 && !['動画', '最新', 'の', 'は', 'で', 'を', 'に', 'と', 'が', 'て', 'た', '！'].includes(w.toLowerCase()));
+
+    // 出現頻度順にソートして上位を取得
+    const counts: Record<string, number> = {};
+    words.forEach(w => counts[w] = (counts[w] || 0) + 1);
+    
+    const sortedKeywords = Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8)
+      .map(([w]) => w);
+
+    // 視聴履歴のチャンネル名＋登録チャンネル名
+    const historyChannels = historyData.map(h => h.author);
+    const subChannels = subscriptions.map(s => s.title);
+    const allChannels = Array.from(new Set([...historyChannels, ...subChannels])).slice(0, 6);
+
+    const base = searchQuery ? [searchQuery] : [];
+    const finalKeywords = Array.from(new Set([...base, ...sortedKeywords, ...allChannels])).join(' ');
+    
+    return finalKeywords;
+  };
+
+  // おすすめ動画データ読み込み (ページ別)
+
+  useEffect(() => {
+    if (userInfo) {
+      localStorage.setItem('xerox_user_info', JSON.stringify(userInfo));
+      window.dispatchEvent(new Event('xerox-profile-updated'));
+    } else {
+      localStorage.removeItem('xerox_user_info');
+      window.dispatchEvent(new Event('xerox-profile-updated'));
+    }
+  }, [userInfo]);
+
+  useEffect(() => {
+    localStorage.setItem('xerox_video_cache', JSON.stringify(videoCache));
+  }, [videoCache]);
+
+  useEffect(() => {
+    localStorage.setItem('xerox_ai_interests', JSON.stringify(aiInterests));
+  }, [aiInterests]);
+
+  const updateCache = (videos: (Video | ShortVideo)[]) => {
+    setVideoCache(prev => {
+      const next = { ...prev };
+      let changed = false;
+      videos.forEach(v => {
+        if (!next[v.videoId]) {
+          const cleanVideo = { ...v };
+          if ('recommendedVideos' in cleanVideo) {
+            delete cleanVideo.recommendedVideos;
+          }
+          next[v.videoId] = cleanVideo;
+          changed = true;
+        }
+      });
+      // キャッシュの上限を設けてクラッシュを防ぐ (最大150件)
+      const keys = Object.keys(next);
+      if (keys.length > 150) {
+        keys.slice(0, keys.length - 150).forEach(k => delete next[k]);
+        changed = true;
+      }
+      return changed ? next : prev;
+    });
+  };
+
+  const isPollingRef = useRef(false);
+
+  const handleLogin = async () => {
+    try {
+      setLoading(true);
+      setError('');
+      setAuthError(null);
+      const data = await fetchJSON('/api/auth/signin',{method:'POST'});
+      if (data && data.userCode && data.verificationUrl) {
+        setAuthFlow({
+          userCode: data.userCode,
+          verificationUrl: data.verificationUrl, interval:data.interval, expiresAt:data.expiresAt
+        });
+        setIsPolling(true);
+        isPollingRef.current = true;
+      } else {
+        throw new Error('Googleログイン処理の開始に失敗しました。');
+      }
+    } catch (err: any) {
+      console.error('Google login error:', err);
+      setAuthError(err.message || 'Google連携を開始できませんでした。');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!isPolling || !authFlow) return;
+
+    let timer: NodeJS.Timeout;
+    const poll = async () => {
+      if (!isPollingRef.current) return;
+      try {
+        console.log('[Auth] Polling authentication status...');
+        const res = await fetchJSON('/api/auth/poll');
+        if (res && res.success && res.user) {
+
+          const uInfo = {
+            name: res.user.name,
+            email: res.user.email || '',
+            picture: res.user.picture || ''
+          };
+          setUserInfo(uInfo);
+          localStorage.setItem('xerox_user_info', JSON.stringify(uInfo));
+          localStorage.setItem('xerox_youtube_linked','1');
+          window.dispatchEvent(new Event('xerox-youtube-connection'));
+          setAuthFlow(null);
+          setIsPolling(false);
+          isPollingRef.current = false;
+          
+          // Force refreshing recommendations with their new personal home feed
+          setPage(1);
+          navigate('/');
+          
+          // Sync Subscribed Channels on login
+          try {
+            const subChannels = await fetchJSON('/api/user/subscriptions');
+            if (Array.isArray(subChannels)) {
+              setSubscriptions(subChannels.map(c => ({
+                id: c.id,
+                title: c.title,
+                avatar: c.avatar
+              })));
+            }
+          } catch (e) {
+            console.warn('Failed to sync subscriptions on login:', e);
+          }
+
+          // Fetch additional YouTube features data
+
+        } else if (res && res.status === 'error') {
+          console.error('[Auth] Polling returned error:', res.error);
+          setAuthError(res.error || '認証中にエラーが発生しました。最初からやり直してください。');
+          setIsPolling(false);
+          isPollingRef.current = false;
+        } else {
+          // If pending, poll again
+          timer = setTimeout(poll, Math.max(5,res.interval||authFlow.interval||6)*1000);
+        }
+      } catch (err: any) {
+        console.error('[Auth] Poll failed:', err);
+        if(err.status===400||err.status===401){setAuthError(err.message);setIsPolling(false);isPollingRef.current=false;}else timer = setTimeout(poll, Math.max(5,authFlow.interval||6)*1000);
+      }
+    };
+
+    timer = setTimeout(poll, Math.max(5,authFlow.interval||6)*1000);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [isPolling, authFlow]);
+
+  useEffect(()=>{
+    if(isSocial)return;
+    let cancelled=false;youtubeGeneration.current++;
+    setGoogleStatusReady(false);localStorage.removeItem('xerox_youtube_credentials');
+    fetchJSON('/api/auth/status',{signal:inactiveRequests.current.signal}).then(status=>{if(cancelled)return;if(status.connected&&status.user){localStorage.setItem('xerox_youtube_linked','1');setUserInfo(status.user);window.dispatchEvent(new Event('xerox-youtube-connection'));}else{localStorage.removeItem('xerox_youtube_linked');setUserInfo(null);}setGoogleStatusReady(true);}).catch(()=>{if(!cancelled){setAuthError('Google連携の状態を確認できませんでした。再読み込みしてください。');setError('連携状態を確認できないため、おすすめの読み込みを停止しています。再読み込みしてください。');setLoading(false);}});
+    return()=>{cancelled=true;youtubeGeneration.current++;};
+  },[siteAccount?.username,isSocial]);
+  useEffect(()=>{if(isSocial||!googleStatusReady)return;if(userInfo)void fetchYoutubeAuthData();setHomeShorts({category:'',videos:[]});setSelectedCategory('すべて');setPage(1);if(googleStatusReady&&location.pathname==='/')void fetchRecommendations(1,false);},[!!userInfo,googleStatusReady,isSocial]);
+  const cancelGoogleLink=async()=>{isPollingRef.current=false;setIsPolling(false);setAuthFlow(null);setAuthError(null);try{await fetchJSON('/api/auth/cancel',{method:'POST'});}catch(error:any){setAuthError(error.message);}};
+
+  const handleLogout = async () => {
+    try{await fetchJSON('/api/auth/logout',{method:'POST'});}catch(error:any){setAuthError(error.message);return;}
+    youtubeGeneration.current++;
+    localStorage.removeItem('xerox_youtube_credentials');
+    localStorage.removeItem('xerox_youtube_linked');
+    window.dispatchEvent(new Event('xerox-youtube-connection'));
+    localStorage.removeItem('xerox_user_info');
+    localStorage.removeItem('webauthn_credential_id');
+    setUserInfo(null);
+    setYoutubeHistory([]);setYoutubeLiked([]);setYoutubeFeatureErrors([]);
+    setSubscriptions([]);
+    setYoutubePlaylists([]);
+    setWatchLaterVideos([]);
+    setNotifications([]);
+    setUnreadNotificationsCount(0);
+    setShowNotificationsMenu(false);
+    setPage(1);
+    navigate('/');
+  };
+
+  const handleGoHome = useCallback(() => {
+    setSelectedCategory('すべて');
+    setPage(1);
+    if (location.pathname !== '/' || location.search) {
+      navigate('/');
+    } else {
+      setView('home');
+      fetchRecommendations(1, false);
+    }
+  }, [location.pathname, location.search, navigate, googleStatusReady, userInfo, watchHistory]);
+
+  const fetchRecommendations = async (pageNum: number = 1, append: boolean = false) => {
+    if(!googleStatusReady)return;
+    const currentReqId = ++recommendationRequestIdRef.current;
+    if (append) {
+      setLoadingMore(true);
+    } else {
+      setLoading(true);
+      setVideos([]);setHomeShorts({category:'',videos:[]});
+    }
+    setError('');
+
+    try {
+      const keywords = [...learnedTerms(false, 5), getHistoryKeywords()].filter(Boolean).join(' ');
+      const historyIds = watchHistory.slice(0, 20).map(h => h.videoId).join(',');
+      const userHashtags = JSON.stringify(localAI.getHashtagsMap());
+      let data = [];
+
+      // Every home visit starts a fresh provider request.
+      const queryParams = new URLSearchParams({
+        keywords,
+        historyIds,
+        userHashtags,
+        page: pageNum.toString(),
+        refreshNonce: Date.now().toString(),
+      });
+      if(pageNum===1)personalHomeCursor.current='';
+      const result = userInfo?await fetchJSON('/api/user/feed/home?continuation='+encodeURIComponent(personalHomeCursor.current),{signal:inactiveRequests.current.signal}):await fetchJSON(`/api/recommendations?${queryParams.toString()}`,{signal:inactiveRequests.current.signal});
+      if (currentReqId !== recommendationRequestIdRef.current) return;
+      if(userInfo){personalHomeCursor.current=result.continuation||'';setHasMore(!!result.hasMore);}
+
+      let publicData: Video[] = [];
+      if (Array.isArray(result)) {
+        publicData = result;
+      } else if (result && Array.isArray(result.videos)) {
+        publicData = result.videos;
+      }
+      
+      // AIの分析結果を保存
+      if (result && result.aiKeywords && result.aiKeywords.length > 0) {
+        setAiInterests(result.aiKeywords);
+      }
+
+      // フォールバック: 初回読み込みで動画が取得できなかった場合は人気動画(trending)を表示
+      if (!userInfo && publicData.length === 0 && data.length === 0 && pageNum === 1) {
+        try {
+          const trendingData = await fetchJSON('/api/trending');
+          if (Array.isArray(trendingData) && trendingData.length > 0) {
+            publicData = trendingData;
+          }
+        } catch (e) {
+          console.warn('Fallback trending fetch error:', e);
+        }
+      }
+      
+      if (currentReqId !== recommendationRequestIdRef.current) return;
+
+      updateCache(publicData);
+      
+      // Combine personalized data (if any) with public recommendations
+      const combinedData = [...data, ...publicData];
+      
+      // Remove duplicates
+      const uniqueMap = new Map();
+      combinedData.forEach(v => {
+        if (v && (v.playlistId||v.videoId) && !uniqueMap.has(v.playlistId||v.videoId)) {
+          uniqueMap.set(v.playlistId||v.videoId, v);
+        }
+      });
+      let finalData = spreadHome(userInfo?Array.from(uniqueMap.values()):prioritizeUnshown(Array.from(uniqueMap.values())));
+
+      if (append) {
+        setVideos(prev => {
+          const existingIds = new Set(prev.map(v => v.playlistId||v.videoId));
+          const newVideos = finalData.filter((v: Video) => v && (v.playlistId||v.videoId) && !existingIds.has(v.playlistId||v.videoId));
+          return [...prev, ...spreadHome(newVideos,prev)];
+        });
+      } else {
+        setVideos(finalData);
+      }
+      setHasMore(userInfo?!!result.hasMore:finalData.length>0);
+    } catch (err: any) {
+      if (currentReqId !== recommendationRequestIdRef.current) return;
+      console.error(err);
+      setHasMore(false);
+      if (!append) setError(err.message || 'エラーが発生しました');
+    } finally {
+      if (currentReqId === recommendationRequestIdRef.current) {
+        setLoading(false);
+        setLoadingMore(false);
+        isFetchingMore.current = false;
+      }
+    }
+  };
+
+  // Use the selected chip's actual YouTube home feed.
+  const fetchHomeCategory = async (category: string, pageNum = 1, append = false) => {
+    if(!googleStatusReady)return;
+    if(userInfo){await fetchRecommendations(pageNum,append);return;}
+    const requestId = ++recommendationRequestIdRef.current;
+    if (append) setLoadingMore(true);
+    else { setLoading(true); setVideos([]); }
+    setError('');
+    try {
+      const params = new URLSearchParams({ name: category, page: String(pageNum) });
+      const data = await fetchJSON(`/api/home/category?${params}`);
+      if (requestId !== recommendationRequestIdRef.current) return;
+      let result: Video[] = prioritizeUnshown(Array.isArray(data.videos) ? data.videos : []);
+      if(!append&&!result.length)result=loadHomeSnapshot(category,homeSnapshotScope);
+      updateCache(result);
+      saveHomeSnapshot(category,result,homeSnapshotScope,append);
+      if (append) {
+        setVideos(previous => {
+          const seen = new Set(previous.map(video => video.videoId));
+          return [...previous, ...result.filter(video => video.videoId && !seen.has(video.videoId) && (seen.add(video.videoId), true))];
+        });
+      } else setVideos(result);
+      setHasMore(!!data.hasMore);
+    } catch (error: any) {
+      if (requestId === recommendationRequestIdRef.current) {
+        if (!append) {const saved=loadHomeSnapshot(category,homeSnapshotScope);if(saved.length){setVideos(saved);updateCache(saved);setError('');}else setError(error.message || 'カテゴリのおすすめを取得できませんでした。');}
+        setHasMore(false);
+      }
+    } finally {
+      if (requestId === recommendationRequestIdRef.current) {
+        setLoading(false);
+        setLoadingMore(false);
+        isFetchingMore.current = false;
+      }
+    }
+  };
+
+  // 検索動画・チャンネルデータ読み込み (YouTube風に統合取得)
+  const fetchSearch = async (
+    q: string,
+    pageNum: number = 1,
+    append: boolean = false
+  ) => {
+    const requestId = ++recommendationRequestIdRef.current;
+    if (append) {
+      setLoadingMore(true);
+    } else {
+      setLoading(true);
+      setVideos([]);
+      if (pageNum === 1) {
+        setSearchChannels([]);
+      }
+      setView('search');
+    }
+    setError('');
+
+    try {
+      const filters=searchFilterParams(new URLSearchParams(window.location.search));
+      const continuationKey=q+'?'+filters.toString();
+      if(pageNum===1)searchContinuation.current={key:continuationKey,next:''};
+      if(pageNum>1&&searchContinuation.current.key===continuationKey&&searchContinuation.current.next)filters.set('continuation',searchContinuation.current.next);
+      const data = await fetchJSON(`/api/search?q=${encodeURIComponent(q)}&page=${pageNum}&${filters}`,{signal:inactiveRequests.current.signal});
+      if (requestId !== recommendationRequestIdRef.current) return;
+      searchContinuation.current={key:continuationKey,next:typeof data.continuation==='string'?data.continuation:''};
+      const newVideos: Video[] = Array.isArray(data) ? data : (data.videos || []);
+      const newChannels: SearchChannel[] = Array.isArray(data) ? [] : (data.channels || []);
+
+      updateCache(newVideos);
+
+      setSearchChannels(previous=>append?[...new Map([...previous,...newChannels].map(channel=>[channel.id,channel])).values()]:newChannels);
+
+      if (append) {
+        setVideos(prev => {
+          const existingIds = new Set(prev.map(v => v.playlistId||v.videoId));
+          const filtered = newVideos.filter((v: Video) => !existingIds.has(v.playlistId||v.videoId));
+          return [...prev, ...filtered];
+        });
+      } else {
+        setVideos(newVideos);
+      }
+      setHasMore(typeof data.hasMore==='boolean'?data.hasMore:newVideos.length > 0);
+    } catch (err: any) {
+      console.error(err);
+      if (requestId === recommendationRequestIdRef.current && !append) setError(err.message || 'エラーが発生しました');
+    } finally {
+      if (requestId === recommendationRequestIdRef.current) {
+        setLoading(false);
+        setLoadingMore(false);
+        isFetchingMore.current = false;
+      }
+    }
+  };
+
+  // 無限スクロール検知
+  const handleScroll = useCallback(() => {
+    if (isSocial || (view !== 'home' && view !== 'search')) return;
+    if (view === 'search' && !searchQuery.trim()) return;
+    if (loading || loadingMore || !hasMore || isFetchingMore.current) return;
+
+    const scrollTop = window.scrollY || document.documentElement.scrollTop;
+    const windowHeight = window.innerHeight;
+    const totalHeight = document.documentElement.scrollHeight;
+
+    // スクロール位置が下部近辺（1000px以内）に達したら次のページを事前取得
+    if (scrollTop + windowHeight >= totalHeight - 1000) {
+      isFetchingMore.current = true;
+      const nextPage = page + 1;
+      setPage(nextPage);
+
+      if (view === 'home') {
+        if (selectedCategory === 'すべて') fetchRecommendations(nextPage, true);
+        else fetchHomeCategory(selectedCategory, nextPage, true);
+      } else if (view === 'search') {
+        fetchSearch(searchQuery, nextPage, true);
+      }
+    }
+  }, [view, loading, loadingMore, hasMore, page, searchQuery, selectedCategory, location.search,isSocial]);
+
+  useEffect(() => {
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [handleScroll,isSocial]);
+
+  const handleSearch = (q: string) => {
+    saveShortsInterest(q);
+    learnSearch(q);
+    navigate(`/results?search_query=${encodeURIComponent(q)}`);
+  };
+
+  const handleSelectCategory = (category: string) => {
+    const next = category && category !== 'すべて' ? category : '';
+    const target = next ? `/?category=${encodeURIComponent(next)}` : '/';
+    if (location.pathname + location.search === target) {
+      setPage(1);
+      if (next) fetchHomeCategory(next, 1, false);
+      else fetchRecommendations(1, false);
+    } else navigate(target);
+  };
+
+  const handleShortSelect = (video: Video, context: ShortsContext) => {
+    updateCache([video]);
+    navigate(`/shorts/${video.videoId}?${shortsQuery(context)}`);
+  };
+
+  const handleVideoSelect = async (videoId: string, videoObj?: Video) => {
+    const selection=++mixOpenRequest.current;
+    if(videoObj?.playlistId?.startsWith('RD')){
+      const generation=youtubeGeneration.current;
+      setOpeningMix(videoObj.title||'ミックスリスト');setYoutubeActionError('');
+      try{
+        const mix=await fetchJSON(`${userInfo?'/api/user/mix/':'/api/mix/'}${encodeURIComponent(videoObj.playlistId)}?videoId=${encodeURIComponent(videoId||'')}`);
+        if(selection!==mixOpenRequest.current||generation!==youtubeGeneration.current)return;
+        const first=mix.videos[0];if(!first)throw new Error('ミックスリストが空です。');
+        handleStartPlaylistPlay({id:'mix:'+mix.id,title:mix.title,videos:mix.videos,createdAt:Date.now(),updatedAt:Date.now()},false,first.videoId);
+        setActiveMix(mix.hasMore?{id:mix.id,cursor:mix.continuation,linked:!!userInfo}:null);
+      }catch(error:any){if(selection===mixOpenRequest.current&&generation===youtubeGeneration.current)setYoutubeActionError(error.message);}
+      finally{if(selection===mixOpenRequest.current)setOpeningMix('');}
+      return;
+    }
+    setOpeningMix('');
+    setActiveMix(null);setCurrentPlaylistQueue([]);setPlaylistQueueIndex(-1);
+    const selectedVideo = videoObj || videoCache[videoId] as Video | undefined;
+    if (selectedVideo?.isShort) {
+      handleShortSelect(selectedVideo, { source: currentVideoId ? 'related' : 'home', ...(currentVideoId ? { videoId: currentVideoId } : {}) });
+      return;
+    }
+    if (!videoObj && shortHistory.some(item => item.videoId === videoId && item.type === 'short')) {
+      navigate(`/shorts/${videoId}`);
+      return;
+    }
+    if (videoObj) {
+      localAI.processVideoInteraction(videoObj, 1.0);
+      updateCache([videoObj]);
+    } else if (videoId && videoCache[videoId]) {
+      localAI.processVideoInteraction(videoCache[videoId], 1.0);
+    }
+    
+    const playlistId = videoObj?.playlistId || (videoId && videoCache[videoId] ? (videoCache[videoId] as Video).playlistId : null);
+    navigate(`/watch?v=${videoId || 'videoseries'}${playlistId ? `&list=${playlistId}` : ''}`);
+  };
+
+  const handleSelectChannel = (channelIdOrName: string) => {
+    navigate(`/channel/${channelIdOrName}`);
+  };
+
+  // プレイリスト操作関数群
+  const handleCreatePlaylist = (title: string, description?: string): string => {
+    const newPl: UserPlaylist = {
+      id: `pl-${crypto.randomUUID()}`,
+      title,
+      description,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      videos: []
+    };
+    setPlaylists(prev => [newPl, ...prev]);
+    return newPl.id;
+  };
+
+  const handleDeletePlaylist = (id: string) => {
+    setPlaylists(prev => prev.filter(p => p.id !== id));
+  };
+
+  const handleToggleVideoInPlaylist = (playlistId: string, video: Video) => {
+    const target = playlists.find(pl => pl.id === playlistId);
+    if (target) learnInteraction(video, target.videos.some(v => v.videoId === video.videoId) ? 'unsave' : 'save');
+    setPlaylists(prev => prev.map(pl => {
+      if (pl.id !== playlistId) return pl;
+      const exists = pl.videos.some(v => v.videoId === video.videoId);
+      let updatedVideos = pl.videos;
+      if (exists) {
+        updatedVideos = pl.videos.filter(v => v.videoId !== video.videoId);
+      } else {
+        const cleanVideo = { ...video };
+        if ('recommendedVideos' in cleanVideo) delete cleanVideo.recommendedVideos;
+        updatedVideos = [...pl.videos, cleanVideo];
+      }
+      return {
+        ...pl,
+        videos: updatedVideos,
+        updatedAt: Date.now()
+      };
+    }));
+  };
+
+  const handleRemoveVideoFromPlaylist = (playlistId: string, videoId: string) => {
+    setPlaylists(prev => prev.map(pl => {
+      if (pl.id !== playlistId) return pl;
+      return {
+        ...pl,
+        videos: pl.videos.filter(v => v.videoId !== videoId),
+        updatedAt: Date.now()
+      };
+    }));
+  };
+
+  const handleReorderPlaylistVideo = (playlistId: string, fromIndex: number, toIndex: number) => {
+    setPlaylists(prev => prev.map(pl => {
+      if (pl.id !== playlistId) return pl;
+      if (toIndex < 0 || toIndex >= pl.videos.length) return pl;
+      const list = [...pl.videos];
+      const [moved] = list.splice(fromIndex, 1);
+      list.splice(toIndex, 0, moved);
+      return { ...pl, videos: list, updatedAt: Date.now() };
+    }));
+  };
+
+  const handleImportYouTubePlaylist = (importedPlaylist: UserPlaylist) => {
+    setPlaylists(prev => [importedPlaylist, ...prev]);
+  };
+
+  const handleUpdatePlaylistInfo = (id: string, title: string, description?: string) => {
+    setPlaylists(prev => prev.map(p => p.id === id ? { ...p, title, description, updatedAt: Date.now() } : p));
+  };
+
+  const handleAddVideosToPlaylist = (playlistId: string, videos: Video[]) => {
+    const cleanVideos = videos.map(v => {
+      const cleanVideo = { ...v };
+      if ('recommendedVideos' in cleanVideo) delete cleanVideo.recommendedVideos;
+      return cleanVideo;
+    });
+    setPlaylists(prev => prev.map(p => p.id === playlistId ? { ...p, videos: cleanVideos, updatedAt: Date.now() } : p));
+  };
+
+  const handleQueueSelect = (index:number) => {
+    const video=currentPlaylistQueue[index];if(!video?.videoId)return;
+    setPlaylistQueueIndex(index);updateCache([video]);navigate(`/watch?v=${encodeURIComponent(video.videoId)}`);
+  };
+  const handleQueueShuffle = () => {
+    const current=currentPlaylistQueue[playlistQueueIndex]?.videoId;
+    const next=queueShuffle?[...originalQueue]:shuffledQueue(currentPlaylistQueue,current);
+    setCurrentPlaylistQueue(next);setPlaylistQueueIndex(Math.max(0,next.findIndex(video=>video.videoId===current)));setQueueShuffle(!queueShuffle);
+  };
+  const handlePlaylistEnded = () => {const next=queueIndex(playlistQueueIndex,currentPlaylistQueue.length,1,queueRepeat);if(next>=0)handleQueueSelect(next);};
+  const handleStartPlaylistPlay = (playlist: UserPlaylist, shuffle=false, startVideoId?:string) => {
+    setActiveMix(null);
+    const original=playlist.videos.filter(video=>video.videoId);
+    const queue=shuffle?shuffledQueue(original,startVideoId):[...original];
+    if(!queue.length)return;
+    const index=Math.max(0,startVideoId?queue.findIndex(video=>video.videoId===startVideoId):0);
+    setOriginalQueue(original);setQueueShuffle(shuffle);setQueueRepeat('off');setQueueTitle(playlist.title);setQueuePanelOpen(window.innerWidth>640);
+    setCurrentPlaylistQueue(queue);setPlaylistQueueIndex(index);updateCache(queue);navigate(`/watch?v=${encodeURIComponent(queue[index].videoId)}`);
+  };
+
+  const hasSearchFilters=searchFilterParams(searchParams).size>0;
+  const resultVideos = videos.filter(video => {if(video.isShort && !(view==='search'&&searchParams.get('type')==='shorts'))return false;if(view!=='search'||!phoneLayout)return true;if(mobileSearchFilter==='ショート')return false;const watched=watchHistory.some(item=>item.videoId===video.videoId);return mobileSearchFilter==='未視聴'?!watched:mobileSearchFilter==='視聴済み'?watched:true;});
+
+  useEffect(()=>{
+    if(!activeMix||mixLoading.current||playlistQueueIndex<currentPlaylistQueue.length-4)return;
+    mixLoading.current=true;setMixBusy(true);const generation=youtubeGeneration.current;const requestMix=activeMix;
+    void fetchJSON(`${activeMix.linked?'/api/user/mix/':'/api/mix/'}${encodeURIComponent(activeMix.id)}?continuation=${encodeURIComponent(activeMix.cursor)}`).then(result=>{
+      if(generation!==youtubeGeneration.current||activeMixRef.current?.id!==requestMix.id||activeMixRef.current?.cursor!==requestMix.cursor)return;
+      const existing=new Set(currentPlaylistQueue.map(v=>v.videoId));const added:Video[]=(result.videos||[]).filter((v:Video)=>v.videoId&&!existing.has(v.videoId)&&(existing.add(v.videoId),true));
+      if(!added.length){setActiveMix(null);return;}
+      setCurrentPlaylistQueue(previous=>[...previous,...added]);setOriginalQueue(previous=>[...previous,...added]);updateCache(added);
+      setActiveMix(result.hasMore?{...activeMix,cursor:result.continuation}:null);
+    }).catch(error=>{if(generation===youtubeGeneration.current&&activeMixRef.current?.id===requestMix.id){setYoutubeActionError('ミックスリストの続きの取得に失敗しました。現在の再生は継続します。');setActiveMix(null);}}).finally(()=>{mixLoading.current=false;setMixBusy(false);});
+  },[activeMix?.cursor,playlistQueueIndex,currentPlaylistQueue.length,mixBusy]);
+  return (
+    <div className={`${view === 'search' ? 'is-search-page ' : ''}${view === 'shorts' ? 'is-shorts-page ' : ''}min-h-screen bg-white text-gray-900 flex flex-col font-sans antialiased selection:bg-red-100 selection:text-red-800`}>
+      {!isSocial&&<GoogleLinkAnnouncement onOpen={()=>navigate('/feed/library')}/>}
+      {youtubeActionError&&<div role="alert" className="youtube-action-toast">{youtubeActionError}<button onClick={()=>setYoutubeActionError('')}>閉じる</button></div>}
+      {openingMix&&<div role="status" aria-live="polite" className="youtube-action-toast"><span className="inline-block h-4 w-4 shrink-0 rounded-full border-2 border-white/30 border-t-white motion-safe:animate-spin" aria-hidden="true"/><span>ミックスリストを読み込み中…<span className="block max-w-64 truncate text-white/70">{openingMix}</span></span></div>}
+      <TopProgressBar isLoading={loading || loadingMore || !!openingMix} />
+      {/* ナビゲーションバー: 常に上部に固定しつつ、コンテンツと被らないようにする */}
+      {!isSocial&&<div className="w-full shrink-0 sticky top-0 z-50 bg-white">
+        <Navbar
+          onSearch={handleSearch}
+          googleLinked={!!userInfo}
+          onGoogleLogin={()=>{navigate('/feed/library');if(!userInfo&&!isPolling)void handleLogin();}}
+          onHome={handleGoHome}
+          toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
+          initialSearchQuery={searchQuery}
+        />
+      </div>}
+
+      <div className="flex flex-1 relative items-start">
+        {/* サイドバー: Desktopではsticky、モバイルではfixed overlay */}
+        {!isSocial&&<Sidebar
+          isOpen={isSidebarOpen}
+          onClose={() => setIsSidebarOpen(false)}
+          currentView={view}
+          onHome={handleGoHome}
+          onSubscriptions={() => navigate('/feed/subscriptions')}
+          onLibrary={() => navigate('/feed/library')}
+          onHistory={() => navigate('/feed/history')}
+          subscriptions={subscriptions}
+          ownChannel={userInfo?.sub?.startsWith('UC')?{id:userInfo.sub,title:userInfo.name,avatar:userInfo.picture}:undefined}
+          onSelectChannel={handleSelectChannel}
+          onDebugAPI={() => navigate('/debug/api')}
+        />}
+
+        {/* メインコンテンツビュー */}
+        <main
+          className="flex-1 transition-all duration-200 min-w-0"
+        >
+          {/* Keep the same player mounted when navigating, preserving iframe playback. */}
+          {currentVideoId && (
+            <FloatingPlayerFrame mini={isSocial || view !== 'video'}
+              onRestore={() => navigate(`/watch?v=${encodeURIComponent(currentVideoId)}${currentPlaylistId ? `&list=${encodeURIComponent(currentPlaylistId)}` : ''}`)}
+              onClose={() => { setCurrentVideoId(null); setCurrentPlaylistId(null); }}>
+              <VideoPlayer
+                key={currentVideoId}
+                videoId={currentVideoId}
+                isMini={isSocial || view !== 'video'}
+                onRequestPip={()=>navigate('/')}
+                playlistQueue={currentPlaylistQueue}
+                playlistQueueIndex={playlistQueueIndex}
+                onQueueSelect={handleQueueSelect}
+                onPlaybackEnded={handlePlaylistEnded}
+                playlistTitle={queueTitle} playlistShuffle={queueShuffle} playlistRepeat={queueRepeat}
+                playlistPanelOpen={queuePanelOpen} onPlaylistPanelToggle={()=>setQueuePanelOpen(value=>!value)}
+                onPlaylistShuffle={handleQueueShuffle} onPlaylistRepeat={()=>setQueueRepeat(value=>value==='off'?'all':value==='all'?'one':'off')}
+                playlistId={currentPlaylistId || undefined}
+                initialVideo={videoCache[currentVideoId] || undefined}
+                onVideoSelect={(id, v) => handleVideoSelect(id, v)}
+                onSelectChannel={handleSelectChannel}
+                subscriptions={subscriptions}
+                onToggleSubscribe={handleToggleSubscribe}
+                onRecordHistory={handleRecordHistory}
+                onOpenAddToPlaylist={(video) => setPlaylistModalVideo(video)}
+                onCacheVideo={(v) => updateCache([v])}
+                watchHistory={watchHistory}
+              />
+            </FloatingPlayerFrame>
+          )}
+          {isSocial?socialContent:<AnimatePresence mode="wait">
+            <motion.div
+              key={view}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.2, ease: "easeOut" }}
+              className="w-full"
+            >
+              {view==='search'&&searchQuery&&<div className="mobile-search-filters no-scrollbar" aria-label="検索結果の絞り込み">{['すべて','ショート','未視聴','視聴済み','動画'].map(filter=><button type="button" key={filter} aria-pressed={filter==='ショート'?searchParams.get('type')==='shorts':filter==='動画'?searchParams.get('type')==='video':filter==='すべて'?(!searchParams.get('type')&&mobileSearchFilter==='すべて'):mobileSearchFilter===filter} onClick={()=>{if(filter==='ショート'||filter==='動画'||filter==='すべて'){const next=new URLSearchParams(searchParams);if(filter==='すべて')next.delete('type');else next.set('type',filter==='ショート'?'shorts':'video');navigate('/results?'+next);}else setMobileSearchFilter(filter);}}>{filter}</button>)}</div>}
+              {/* カテゴリーバー（ホーム ＆ 検索画面のみ） */}
+              {view === 'home' && googleStatusReady && !userInfo && (
+                <CategoryBar
+                  selectedCategory={selectedCategory}
+                  onSelectCategory={handleSelectCategory}
+                />
+              )}
+
+          {/* ビュー分岐 */}
+          {view === 'video' ? null : view === 'shorts' ? (
+            <ShortsViewer
+              key={['shorts',userInfo?'youtube':'local', searchParams.get('source'), searchParams.get('q'), searchParams.get('videoId'), searchParams.get('channelId')].join(':')}
+              initialVideo={videoCache[location.pathname.split('/')[2]] as Video | undefined}
+              initialId={/^[\w-]{11}$/.test(location.pathname.split('/')[2] || '') ? location.pathname.split('/')[2] : undefined}
+              context={{
+                channelId: searchParams.get('channelId') || undefined,
+                source: searchParams.get('source') === 'channel' ? 'channel' : searchParams.get('source') === 'search' ? 'search' : searchParams.get('source') === 'related' ? 'related' : 'home',
+                q: searchParams.get('q') || undefined,
+                videoId: searchParams.get('videoId') || undefined,
+              }}
+              onRecord={(video) => { updateCache([video]); handleRecordShortHistory({ ...video, videoId: video.videoId! }); }}
+              onSelectChannel={handleSelectChannel}
+            />
+
+          ) : view === 'channel' && selectedChannelId ? (
+            <ChannelPage
+              channelId={selectedChannelId}
+              onVideoSelect={(id) => handleVideoSelect(id)}
+              subscriptions={subscriptions}
+              onToggleSubscribe={handleToggleSubscribe}
+              onSelectChannel={handleSelectChannel}
+            />
+          ) : view === 'subscriptions' ? (
+            <SubscriptionsFeed
+              subscriptions={subscriptions}
+              onVideoSelect={(id, v) => handleVideoSelect(id, v)}
+              onSelectChannel={handleSelectChannel}
+              onToggleSubscribe={handleToggleSubscribe}
+              onOpenAddToPlaylist={(v) => setPlaylistModalVideo(v)}
+            />
+          ) : view === 'library' ? (
+            <MyPage
+              youtubeConnection={<YouTubeAccountPanel user={userInfo} flow={authFlow} error={authError} featureErrors={youtubeFeatureErrors} liked={youtubeLiked} notifications={notifications} onLink={handleLogin} onCancel={()=>void cancelGoogleLink()} onUnlink={()=>void handleLogout()} onVideoSelect={handleVideoSelect} onPlaylistPlay={(id,title,videos,startId)=>handleStartPlaylistPlay({id:'youtube-'+id,title,videos,createdAt:Date.now(),updatedAt:Date.now()},false,startId)}/>}
+              playlists={playlists}
+              history={[...watchHistory, ...shortHistory].sort((a,b)=>b.timestamp-a.timestamp)}
+              onCreatePlaylist={handleCreatePlaylist}
+              onDeletePlaylist={handleDeletePlaylist}
+              onRemoveVideoFromPlaylist={handleRemoveVideoFromPlaylist}
+              onReorderPlaylistVideo={handleReorderPlaylistVideo}
+              onStartPlaylistPlay={handleStartPlaylistPlay}
+              onVideoSelect={(id) => handleVideoSelect(id)}
+              onNavigateToHistory={() => navigate('/feed/history')}
+              onImportYouTubePlaylist={handleImportYouTubePlaylist}
+              onUpdatePlaylistInfo={handleUpdatePlaylistInfo}
+              onAddVideosToPlaylist={handleAddVideosToPlaylist}
+              youtubePlaylists={youtubePlaylists}
+              watchLaterVideos={watchLaterVideos}
+            >
+            <LibraryPage
+              playlists={playlists}
+              history={watchHistory}
+              onCreatePlaylist={handleCreatePlaylist}
+              onDeletePlaylist={handleDeletePlaylist}
+              onRemoveVideoFromPlaylist={handleRemoveVideoFromPlaylist}
+              onReorderPlaylistVideo={handleReorderPlaylistVideo}
+              onStartPlaylistPlay={handleStartPlaylistPlay}
+              onVideoSelect={(id) => handleVideoSelect(id)}
+              onNavigateToHistory={() => navigate('/feed/history')}
+              onImportYouTubePlaylist={handleImportYouTubePlaylist}
+              onUpdatePlaylistInfo={handleUpdatePlaylistInfo}
+              onAddVideosToPlaylist={handleAddVideosToPlaylist}
+              youtubePlaylists={youtubePlaylists}
+              watchLaterVideos={watchLaterVideos}
+            />
+            </MyPage>
+          ) : view === 'history' ? (
+            loadingHistory ? (
+              <div className="flex-1 flex flex-col items-center justify-center py-20 bg-white">
+                <Loader2 className="w-8 h-8 animate-spin text-red-600 mb-2" />
+                <span className="text-sm font-medium text-gray-500">再生履歴を読み込み中...</span>
+              </div>
+            ) : (
+              <HistoryPage
+                history={[...shortHistory, ...watchHistory, ...youtubeHistory.filter(item => !watchHistory.some(local => local.videoId === item.videoId))].sort((a, b) => b.timestamp - a.timestamp)}
+                onVideoSelect={(id) => handleVideoSelect(id)}
+                onClearHistory={(type) => { if (type === 'short') setShortHistory([]); else { setWatchHistory([]); setYoutubeHistory([]); } }}
+                onRemoveHistoryItem={(id, type) => {
+                  if (type === 'short') { setShortHistory(prev => prev.filter(i => i.videoId !== id)); return; }
+                  setWatchHistory(prev => prev.filter(i => i.videoId !== id));
+                  setYoutubeHistory(prev => prev.filter(i => i.videoId !== id));
+                }}
+                onSelectChannel={handleSelectChannel}
+              />
+            )
+          ) : view === 'debug' ? (
+            <DebugAPI />
+          ) : view === 'license' ? (
+            <LicensePage onBack={handleGoHome} />
+          ) : loading ? (
+            <VideoSkeleton count={12} />
+          ) : error && videos.length === 0 ? (
+            <CompactError error={error} onRetry={() => view === 'search' ? fetchSearch(searchQuery) : selectedCategory === 'すべて' ? fetchRecommendations(1) : fetchHomeCategory(selectedCategory, 1)}/>
+
+          ) : (
+            /* ホーム ＆ 検索結果 グリッド ＆ 無限スクロール */
+            <div data-search-filter={phoneLayout?mobileSearchFilter:'すべて'} className={`results-content ${view==='search'?'search-results-content':''} p-4 sm:p-6 lg:p-8 max-w-[1600px] mx-auto bg-white min-h-screen`}>
+              {view === 'search' && searchQuery && (
+                <>
+                  <DetectedSearchHeader
+                    searchQuery={searchQuery}
+                    onVideoSelect={(id) => handleVideoSelect(id)}
+                    onSelectChannel={(id) => handleSelectChannel(id)}
+                  />
+
+                  {/* 検索ヘッダー */}
+                  <div className="search-results-heading mb-6 border-b border-gray-200 pb-3">
+                    <h2 className="text-lg font-bold text-gray-900 tracking-tight">
+                      "{searchQuery}" の検索結果
+                    </h2>
+                    <SearchFilters params={searchParams} onApply={filters=>{filters.set('search_query',searchQuery);navigate('/results?'+filters.toString());}}/>
+                  </div>
+                </>
+              )}
+
+              {/* チャンネル結果（YouTube同様に動画と同じ一覧の先頭に統合表示） */}
+              {view === 'search' && searchChannels.length > 0 && (
+                <div className="search-channel-results flex flex-col divide-y divide-gray-100 border-b border-gray-200 pb-6 mb-8">
+                  {(searchParams.get('type')==='channel'?searchChannels:searchChannels.slice(0,3)).map((channel) => (
+                    <SearchChannelCard
+                      key={channel.id}
+                      channel={channel}
+                      onSelectChannel={handleSelectChannel}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {(view!=='home'||googleStatusReady)&&!(view==='search'&&hasSearchFilters)&&<ShortsShelf
+                onVideosLoaded={view==='home' ? data=>setHomeShorts({category:selectedCategory,videos:data}) : undefined}
+                context={view === 'search' ? { source: 'search', q: searchQuery } : { source: 'home', q: selectedCategory === 'すべて' ? undefined : selectedCategory }}
+                onSelect={handleShortSelect}
+              />}
+
+              {view==='search'&&phoneLayout&&mobileSearchFilter!=='ショート'&&resultVideos.length===0&&searchChannels.length===0&&<p className="mobile-search-empty">この条件に一致する動画はありません。</p>}
+              {/* 動画リスト */}
+              <div className="mobile-video-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-10">
+                {resultVideos.map((video, idx) => (
+                  <React.Fragment key={`${video.videoId}-${idx}`}><div className="relative group">
+                    <VideoCard
+                      video={video}
+                      preferMaxResolution={view === 'home'}
+                      onClick={() => video.isShort?handleShortSelect(video,view==='home'?{source:'home'}:{source:'search',q:searchQuery}):handleVideoSelect(video.videoId,video)}
+                      onSelectChannel={handleSelectChannel}
+                    />
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPlaylistModalVideo(video);
+                      }}
+                      className="absolute top-2 right-2 bg-black/80 hover:bg-black text-white px-2.5 py-1 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 text-xs font-bold shadow-md"
+                      title="再生リストに保存"
+                    >
+                      <span className="result-save-label">+ 保存</span><Folder className="result-save-icon" size={18}/>
+                    </button>
+                  </div>
+                  {view==='home' && (idx+1)%12===0 && homeShorts.category===selectedCategory && homeShorts.videos.length>Math.floor((idx+1)/12)*8 && <div className="col-span-full"><ShortsShelf context={{source:'home',q:selectedCategory==='すべて'?undefined:selectedCategory}} providedVideos={homeShorts.videos} offset={Math.floor((idx+1)/12)*8} onSelect={handleShortSelect}/></div>}
+                  </React.Fragment>
+
+                ))}
+              </div>
+
+              {/* 検索結果が動画もチャンネルもない場合 */}
+              {view === 'search' && !loading && videos.length === 0 && searchChannels.length === 0 && (
+                <div className="py-20 text-center text-sm text-gray-500">
+                  {searchQuery ? '検索結果が見つかりませんでした。別のキーワードをお試しください。' : '上の検索ボックスにキーワードを入力してください。'}
+                </div>
+              )}
+
+              {/* 無限スクロールローディングスピナー */}
+              {loadingMore && (
+                <div className="flex items-center justify-center py-10 gap-3 text-gray-600">
+                  <Loader2 className="w-6 h-6 animate-spin text-gray-700" />
+                  <span className="text-xs font-bold">次の動画を読み込んでいます...</span>
+                </div>
+              )}
+            </div>
+          )
+        }
+        </motion.div>
+      </AnimatePresence>}
+        </main>
+      </div>
+
+      {!isSocial&&<nav className="mobile-bottom-nav" aria-label="メインメニュー">
+        {[{to:'/', label:'ホーム', Icon:Home, current:'home'}, {to:'/shorts', label:'ショート', Icon:Zap, current:'shorts'}, {to:'/feed/subscriptions', label:'登録チャンネル', Icon:PlaySquare, current:'subscriptions'}, {to:'/feed/library', label:'マイページ', Icon:User, current:'library'}].map(({to, label, Icon, current}) => <Link key={to} to={to} aria-current={view === current ? 'page' : undefined}><>{current === 'library' && deviceProfile.avatar ? <img src={deviceProfile.avatar} alt="" className="mobile-profile-avatar"/> : <Icon size={23} strokeWidth={view === current ? 2.5 : 1.8}/>}</><span>{label}</span></Link>)}
+      </nav>}
+
+      {/* プレイリスト保存モーダル */}
+      {playlistModalVideo && (
+        <AddToPlaylistModal
+          youtubePlaylists={youtubePlaylists}
+          video={playlistModalVideo}
+          playlists={playlists}
+          onClose={() => setPlaylistModalVideo(null)}
+          onToggleVideoInPlaylist={handleToggleVideoInPlaylist}
+          onCreatePlaylist={handleCreatePlaylist}
+        />
+      )}
+    </div>
+  );
+}

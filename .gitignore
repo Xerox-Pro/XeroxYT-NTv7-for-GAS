@@ -1,0 +1,5 @@
+node_modules/
+gas/web/
+.env*
+*.log
+.DS_Store

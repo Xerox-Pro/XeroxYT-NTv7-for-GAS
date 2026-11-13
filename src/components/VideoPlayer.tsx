@@ -1,0 +1,1783 @@
+import CompactError from './CompactError';
+import {useDeviceProfile} from '../lib/deviceProfile';
+import {useYouTubeLinked} from '../lib/youtubeConnection';
+import PlaybackSettings from './PlaybackSettings';
+import {usePlayerPreferences,videoEffectsStyle} from '../lib/playerPreferences';
+import {readPlaybackPosition,savePlaybackPosition} from '../lib/playbackPosition.mjs';
+import {useSleepTimer,consumeEndTimer} from '../hooks/useSleepTimer';
+import PlaylistQueuePanel from './PlaylistQueuePanel';
+import {getDeviceEmbedUrl} from '../lib/deviceEmbed.mjs';
+import RichText from './RichText';
+import {useAudioPreference,readMuted} from '../lib/audioPreference';
+import VideoDescriptionSheet from './VideoDescriptionSheet';
+import { createPlaybackTracker, learnInteraction } from '../lib/localRecommendations.mjs';
+import { prioritizeUnshown } from '../lib/recommendationImpressions.mjs';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Video, Comment, ChannelSubscription, WatchHistoryItem, ShortVideo } from '../types';
+import { formatNumberJP, formatDuration, fetchJSON } from '../utils';
+import { localAI } from '../lib/intelligence';
+import {
+  ThumbsUp, ThumbsDown, Share2, AlertCircle, Loader2,
+  ChevronDown, ChevronUp, MessageSquare, Send, Plus,
+  ListMusic, Radio, Users, DollarSign, Sparkles, History, Smile, RotateCw, X, Bell,
+  Captions, Play, Pause, RotateCcw, Volume2, VolumeX, Maximize2, Minimize2, Gauge, SkipForward, FastForward, Keyboard,
+  AlertTriangle, PictureInPicture2
+} from 'lucide-react';
+import Avatar from './Avatar';
+import LiveChat from './LiveChat';
+import KeyboardShortcutsModal from './KeyboardShortcutsModal';
+
+import { loadPlayerApi } from '../lib/youtubePlayer';
+import ShortsShelf from './ShortsShelf';
+
+interface CommentItemProps {
+  comment: Comment;
+  onSelectChannel: (channelIdOrName: string) => void;
+}
+
+const CommentItem: React.FC<CommentItemProps> = ({ comment, onSelectChannel }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  // 3行以上または長いテキストの判定
+  const lineCount = (comment.text || '').split('\n').length;
+  const isLong = lineCount > 3 || (comment.text || '').length > 160;
+
+  return (
+    <div className="flex items-start gap-3 text-sm">
+      <button
+        onClick={() => onSelectChannel(comment.authorId || comment.author)}
+        className="shrink-0 cursor-pointer text-left self-start mt-0.5 hover:opacity-85 transition-opacity"
+        title={`${comment.author}のチャンネルを開く`}
+      >
+        <Avatar
+          src={comment.authorAvatar}
+          name={comment.author}
+          channelId={comment.authorId}
+          className="w-9 h-9 text-xs shadow-xs"
+        />
+      </button>
+      <div className="flex flex-col gap-1 flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => onSelectChannel(comment.authorId || comment.author)}
+            className="font-bold text-gray-900 text-xs hover:underline cursor-pointer text-left truncate"
+          >
+            {comment.author}
+          </button>
+          <span className="text-[11px] text-gray-500 shrink-0">{comment.publishedTime}</span>
+        </div>
+
+        <p className={`text-gray-800 text-sm font-normal leading-relaxed whitespace-pre-wrap break-words ${!isExpanded && isLong ? 'line-clamp-3' : ''}`}>
+          <RichText text={comment.text} onSelectChannel={onSelectChannel}/>
+        </p>
+
+        {isLong && (
+          <button
+            type="button"
+            onClick={() => setIsExpanded(!isExpanded)}
+            className="text-xs font-semibold text-gray-600 hover:text-gray-900 self-start mt-0.5 hover:underline cursor-pointer"
+          >
+            {isExpanded ? '一部を表示' : '続きを読む'}
+          </button>
+        )}
+
+        <div className="flex items-center gap-4 mt-1 text-xs text-gray-500">
+          <button className="flex items-center gap-1 hover:text-gray-900 font-semibold">
+            <ThumbsUp size={14} />
+            <span>{comment.likeCount}</span>
+          </button>
+          <button className="hover:text-gray-900">
+            <ThumbsDown size={14} />
+          </button>
+          <button className="hover:text-gray-900 font-semibold">返信</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface LiveChatMessage {
+  id: string;
+  author: string;
+  authorAvatar?: string;
+  message: string;
+  timestamp: string;
+  isSuperChat?: boolean;
+  superChatAmount?: string;
+  superChatColor?: string;
+  badge?: string;
+}
+
+interface VideoPlayerProps {
+  key?: React.Key;
+  videoId: string;
+  isMini?: boolean;
+  onRequestPip?:()=>void;
+  playlistId?: string;
+  initialVideo?: Video | ShortVideo;
+  onVideoSelect: (id: string, video?: Video) => void;
+  onSelectChannel: (channelIdOrName: string) => void;
+  subscriptions: ChannelSubscription[];
+  onToggleSubscribe: (channel: ChannelSubscription) => void;
+  onRecordHistory?: (video: Video) => void;
+  onOpenAddToPlaylist?: (video: Video) => void;
+  onCacheVideo?: (video: Video) => void;
+  watchHistory?: WatchHistoryItem[];
+  playlistTitle?:string;playlistShuffle?:boolean;playlistRepeat?:'off'|'all'|'one';playlistPanelOpen?:boolean;onPlaylistPanelToggle?:()=>void;onPlaylistShuffle?:()=>void;onPlaylistRepeat?:()=>void;
+  playlistQueue?: Video[]; playlistQueueIndex?: number; onQueueSelect?: (index:number)=>void; onPlaybackEnded?: ()=>void;
+}
+
+export default function VideoPlayer({
+  videoId: requestedVideoId,
+  isMini = false,
+  onRequestPip,
+  playlistId,
+  initialVideo: initialVideoProp,
+  onVideoSelect,
+  onSelectChannel,
+  subscriptions,
+  onToggleSubscribe,
+  onRecordHistory,
+  onOpenAddToPlaylist,
+  onCacheVideo,
+  playlistQueue=[],playlistQueueIndex=-1,onQueueSelect,onPlaybackEnded,
+  playlistTitle='再生リスト',playlistShuffle=false,playlistRepeat='off',playlistPanelOpen=false,onPlaylistPanelToggle,onPlaylistShuffle,onPlaylistRepeat,
+  watchHistory = []
+}: VideoPlayerProps) {
+  const playerPreferences=usePlayerPreferences();
+  const youtubeLinked=useYouTubeLinked();
+  const commentProfile=useDeviceProfile();
+  const [youtubeActionError,setYoutubeActionError]=useState('');
+  const [youtubeActionBusy,setYoutubeActionBusy]=useState(false);
+  const actionLock=useRef(false);
+  const youtubeAction=async(action:string,payload:Record<string,unknown>={})=>{if(actionLock.current)return false;actionLock.current=true;setYoutubeActionBusy(true);setYoutubeActionError('');try{await fetchJSON('/api/user/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,videoId,...payload})});return true;}catch(error:any){setYoutubeActionError(error.message);return false;}finally{actionLock.current=false;setYoutubeActionBusy(false);}};
+  const endedCallback=useRef(onPlaybackEnded);endedCallback.current=onPlaybackEnded;
+  const [autoNext, setAutoNext] = useState(() => { try { return localStorage.getItem('xerox_video_auto_next_v1') !== 'off'; } catch { return true; } });
+  const autoNextRef = useRef(autoNext); autoNextRef.current = autoNext;
+  const nextRelatedRef = useRef<Video | null>(null);
+  const [autoNextCountdown, setAutoNextCountdown] = useState<{ video: Video; seconds: number } | null>(null);
+  const countdownTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const countdownTicker = useRef<ReturnType<typeof setInterval> | null>(null);
+  const countdownTarget = useRef<Video | null>(null);
+  useEffect(() => { try { localStorage.setItem('xerox_video_auto_next_v1', autoNext ? 'on' : 'off'); } catch {} }, [autoNext]);
+  const endedHandled=useRef(false);
+  const repeatModeRef=useRef(playlistRepeat);repeatModeRef.current=!playlistQueue.length?'off':playlistRepeat==='all'&&playlistQueue.length===1?'one':playlistRepeat;
+  // The embedded playlist can move to another video without replacing its iframe.
+  const [videoId, setVideoId] = useState(requestedVideoId);
+  const currentVideoIdRef = useRef(requestedVideoId);
+  const savedSample=useRef({id:requestedVideoId,time:0,duration:0,received:false});
+  const initialVideo = videoId === requestedVideoId ? initialVideoProp : undefined;
+  const [videoData, setVideoData] = useState<Video | null>(null);
+  const [isFallback, setIsFallback] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [captionsEnabled,setCaptionsEnabled] = useState(false);
+  const captionsEnabledRef=useRef(false);captionsEnabledRef.current=captionsEnabled;
+  const [isRelatedOpen, setIsRelatedOpen] = useState(true);
+  const [isDescExpanded, setIsDescExpanded] = useState(false);
+  const [mobileDescription,setMobileDescription] = useState(() => window.innerWidth <= 640);
+  useEffect(() => { const resize=()=>setMobileDescription(window.innerWidth <= 640);window.addEventListener('resize',resize);return()=>window.removeEventListener('resize',resize); },[]);
+  useEffect(()=>setIsDescExpanded(false),[videoId]);
+  const [sidebarTab, setSidebarTab] = useState<'related' | 'liveChat'>(() => initialVideo && 'isLive' in initialVideo && initialVideo.isLive ? 'liveChat' : 'related');
+  const relatedVisible=useRef(true);relatedVisible.current=!isMini&&isRelatedOpen&&sidebarTab==='related';
+  const relatedBusy=useRef(false);
+  const [iframeUrl, setIframeUrl] = useState<string>('');
+  const [refreshingIframe, setRefreshingIframe] = useState(false);
+  const [cooldownSec, setCooldownSec] = useState(0);
+  const [relatedFilter, setRelatedFilter] = useState('all');
+  const [isLiked, setIsLiked] = useState(false);
+  const [isDisliked, setIsDisliked] = useState(false);
+  const [likeCountDelta, setLikeCountDelta] = useState(0);
+  const [copiedToast, setCopiedToast] = useState(false);
+
+  const initialThumbnails = initialVideo && 'videoThumbnails' in initialVideo ? initialVideo.videoThumbnails : undefined;
+  const initialDesc = initialVideo && 'description' in initialVideo ? initialVideo.description : undefined;
+  const initialPublished = initialVideo && 'publishedText' in initialVideo ? initialVideo.publishedText : undefined;
+  const initialLength = initialVideo && 'lengthSeconds' in initialVideo ? initialVideo.lengthSeconds : undefined;
+
+  const fallbackVideo: Video = {
+    videoId,
+    title: initialVideo?.title || `YouTube動画 (${videoId})`,
+    description: initialDesc || '',
+    author: initialVideo?.author || 'YouTube',
+    authorId: initialVideo?.authorId || '',
+    publishedText: initialPublished || '直接再生',
+    viewCount: initialVideo?.viewCount || 0,
+    lengthSeconds: initialLength || 0,
+    videoThumbnails: initialThumbnails && initialThumbnails.length > 0
+      ? initialThumbnails
+      : [{ url: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`, width: 480, height: 360 }],
+    recommendedVideos: [],
+    type: 'video'
+  };
+
+  const activeVideo: Video = videoData?.videoId === videoId ? videoData : fallbackVideo;
+  useEffect(() => {
+    if (!isMini) return;
+    const ratio = activeVideo.isShort ? 9 / 16
+      : activeVideo.width && activeVideo.height ? activeVideo.width / activeVideo.height : 16 / 9;
+    const timer = window.setTimeout(() => window.dispatchEvent(new CustomEvent('xerox-mini-player-aspect-change', { detail: ratio })), 0);
+    return () => window.clearTimeout(timer);
+  }, [activeVideo.width, activeVideo.height, activeVideo.isShort, isMini]);
+
+  useEffect(()=>{setIsLiked(false);setIsDisliked(false);setLikeCountDelta(0);},[videoId]);
+  const ratingVideo=useRef(videoId);ratingVideo.current=videoId;
+  const handleLike = async () => {
+    if(actionLock.current)return;
+    const previous={liked:isLiked,disliked:isDisliked,delta:likeCountDelta},id=videoId;
+    setIsLiked(!isLiked);setIsDisliked(false);setLikeCountDelta(isLiked?0:1);
+    if(youtubeLinked&&!await youtubeAction(isLiked?'removeRating':'like')){if(ratingVideo.current===id){setIsLiked(previous.liked);setIsDisliked(previous.disliked);setLikeCountDelta(previous.delta);}return;}
+    learnInteraction(activeVideo, previous.liked ? 'unlike' : 'like');
+  };
+  const handleDislike = async () => {
+    if(actionLock.current)return;
+    const previous={liked:isLiked,disliked:isDisliked,delta:likeCountDelta},id=videoId;
+    setIsDisliked(!isDisliked);setIsLiked(false);setLikeCountDelta(0);
+    if(youtubeLinked&&!await youtubeAction(isDisliked?'removeRating':'dislike')){if(ratingVideo.current===id){setIsLiked(previous.liked);setIsDisliked(previous.disliked);setLikeCountDelta(previous.delta);}return;}
+    if(!previous.disliked)learnInteraction(activeVideo,'dislike');
+  };
+
+  // 動画を開いた時・再読み込み時に毎回 video_config.json から params を取得してプレイヤーURLを構築
+  const getEduPlayerUrl = async (id: string, playlist?: string): Promise<string> => {
+    const url = await getDeviceEmbedUrl(id);
+    const apiUrl = new URL(url);
+    apiUrl.searchParams.set('cc_load_policy','0');
+    apiUrl.searchParams.set('autoplay', '1');
+    apiUrl.searchParams.set('mute', readMuted() ? '1' : '0');
+    if(playlist)apiUrl.searchParams.set('list',playlist);
+    apiUrl.searchParams.set('playsinline', '1');
+    apiUrl.searchParams.set('enablejsapi', '1');
+    apiUrl.searchParams.set('origin', window.location.origin);
+    const position=readPlaybackPosition(id);
+    if(position>0)apiUrl.searchParams.set('start',String(position));
+    return apiUrl.toString();
+  };
+
+  // 動画を開いた時に毎回 key(params) を取得してプレイヤーを埋め込む
+  useEffect(() => {
+    let isCurrent = true;
+    const loadPlayer = async () => {
+      const id = requestedVideoId || 'videoseries';
+      const url = await getEduPlayerUrl(id, playlistId);
+      if (isCurrent) {
+        setIframeUrl(url);
+      }
+    };
+    loadPlayer();
+    return () => {
+      isCurrent = false;
+    };
+  }, [requestedVideoId, playlistId]);
+
+  // 再読み込みボタンのクールダウンカウントダウン
+  useEffect(() => {
+    if (cooldownSec <= 0) return;
+    const timer = setInterval(() => {
+      setCooldownSec((prev) => Math.max(0, prev - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [cooldownSec]);
+
+  // プレイヤー再読み込み
+  const handleReloadPlayer = async () => {
+    if (refreshingIframe || cooldownSec > 0) return;
+    setRefreshingIframe(true);
+    setCooldownSec(15); // 15秒のクールダウンをセット
+    try {
+      const id = videoId || 'videoseries';
+      const url = await getEduPlayerUrl(id, playlistId);
+      setIframeUrl(url);
+    } catch (e) {
+      console.error('Failed to reload iframe:', e);
+    } finally {
+      setRefreshingIframe(false);
+    }
+  };
+
+  // ドキュメントタイトルの更新 (動画表示時: タイトル - XeroxYT-NTv7 for GAS)
+  useEffect(() => {
+    if (!isMini && activeVideo && activeVideo.title) {
+      document.title = `${activeVideo.title} - XeroxYT-NTv7 for GAS`;
+    }
+  }, [activeVideo.title, isMini]);
+
+  // Watch duration tracker
+  const watchSecondsRef = useRef<number>(0);
+  const activeVideoRef = useRef<Video | null>(null);
+
+  // Comments state with pagination & sorting
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [mobileCommentsOpen, setMobileCommentsOpen] = useState(false);
+  useEffect(() => { setMobileCommentsOpen(false); }, [videoId]);
+  const [commentSort, setCommentSort] = useState<'top' | 'newest'>('top');
+  const [commentPage, setCommentPage] = useState(1);
+  const [hasMoreComments, setHasMoreComments] = useState(true);
+  const [loadingComments, setLoadingComments] = useState(false);
+  const [loadingMoreComments, setLoadingMoreComments] = useState(false);
+  const [newComment, setNewComment] = useState('');
+  const [commentsOverlay,setCommentsOverlay]=useState(()=>window.innerWidth<1024);
+  useEffect(()=>{const resize=()=>setCommentsOverlay(window.innerWidth<1024);window.addEventListener('resize',resize);return()=>window.removeEventListener('resize',resize);},[]);
+  const commentsVisible=!isMini&&(!commentsOverlay||mobileCommentsOpen);
+  const commentsVisibleRef=useRef(commentsVisible);commentsVisibleRef.current=commentsVisible;
+  const commentsSectionRef=useRef<HTMLDivElement>(null);
+  const [commentsError,setCommentsError]=useState('');
+  const commentsEndRef = useRef<HTMLDivElement>(null);
+  const commentPageRequest=useRef<{controller:AbortController;context:string}|null>(null);
+  const commentContext=useRef('');commentContext.current=videoId+'|'+commentSort;
+  useEffect(()=>{commentPageRequest.current?.controller.abort();commentPageRequest.current=null;setLoadingMoreComments(false);return()=>{commentPageRequest.current?.controller.abort();commentPageRequest.current=null;};},[videoId,commentSort]);
+
+  // Related videos state with pagination
+  const [relatedVideos, setRelatedVideos] = useState<Video[]>([]);
+  const [relatedPage, setRelatedPage] = useState(1);
+  const [hasMoreRelated, setHasMoreRelated] = useState(true);
+  const [loadingMoreRelated, setLoadingMoreRelated] = useState(false);
+  const relatedEndRef = useRef<HTMLDivElement>(null);
+
+  const [showMultiChannelDialog, setShowMultiChannelDialog] = useState(false);
+  const [multiChannelsLoading, setMultiChannelsLoading] = useState(false);
+  const [multiChannelsData, setMultiChannelsData] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (activeVideo?.multipleChannelIds && activeVideo.multipleChannelIds.length > 1) {
+      setMultiChannelsLoading(true);
+      Promise.all(
+        activeVideo.multipleChannelIds.map((id: string) =>
+          fetch(`/api/channel/${id}`).then(res => res.ok ? res.json() : null)
+        )
+      ).then(channels => {
+        setMultiChannelsData(channels.filter(Boolean));
+        setMultiChannelsLoading(false);
+      }).catch(err => {
+        console.error('Failed to load multi channels', err);
+        setMultiChannelsLoading(false);
+      });
+    } else {
+      setMultiChannelsData([]);
+    }
+  }, [activeVideo?.multipleChannelIds]);
+
+  // Playback progress, rather than time spent waiting on the page, trains the model.
+  useEffect(() => {
+    let tracker: ReturnType<typeof createPlaybackTracker> | null = null;
+    let trackedId = '';
+    const interval = setInterval(() => {
+      const video = activeVideoRef.current;
+      if (!video || !playerTimeReceivedRef.current) return;
+      if (trackedId !== video.videoId) {
+        tracker?.finish(); tracker = createPlaybackTracker(video); trackedId = video.videoId!;
+      }
+      tracker?.update(currentTimeRef.current, durationRef.current || video.lengthSeconds, playerStateRef.current === 1, document.visibilityState !== 'hidden');
+    }, 1000);
+    return () => { clearInterval(interval); tracker?.finish(); };
+  }, [videoId]);
+
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const apiPlayerRef = useRef<any>(null);
+  const playlistRef = useRef(playlistId);
+  playlistRef.current = playlistId;
+  const onVideoSelectRef = useRef(onVideoSelect);
+  onVideoSelectRef.current = onVideoSelect;
+  const updatePlayingVideo = useCallback((id: unknown) => {
+    if (typeof id !== 'string' || !/^[a-zA-Z0-9_-]{11}$/.test(id)) return;
+    if (id === currentVideoIdRef.current) return;
+    const previous=savedSample.current;
+    if(previous.received)savePlaybackPosition(previous.id,previous.time,previous.duration);
+    savedSample.current={id,time:0,duration:0,received:false};
+    currentVideoIdRef.current = id;
+    if (playlistRef.current) setVideoId(id);
+    else onVideoSelectRef.current(id);
+  }, []);
+  const playerContainerRef = useRef<HTMLDivElement>(null);
+  const [isPlaying, setIsPlaying] = useState(true);
+  const [showShortcutsModal, setShowShortcutsModal] = useState(false);
+
+  // プレイヤー状態の内部トラッキング
+  const currentTimeRef = useRef<number>(0);
+  const playerTimeReceivedRef = useRef(false);
+  const durationRef = useRef<number>(0);
+  const playerStateRef = useRef<number>(1); // 1: playing, 2: paused
+  const volumeRef = useRef<number>(100);
+  const [isMuted, setIsMuted] = useAudioPreference();
+  const isMutedRef = useRef<boolean>(isMuted);
+  isMutedRef.current = isMuted;
+  const playbackRateRef = useRef<number>(1);
+
+  // HUD オーバーレイ状態 (K, J, L などのキー操作フィードバック)
+  interface HudState {
+    id: number;
+    icon: React.ReactNode;
+    label: string;
+    subLabel?: string;
+    progress?: number;
+  }
+  const [hud, setHud] = useState<HudState | null>(null);
+  const hudTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const triggerHud = useCallback((icon: React.ReactNode, label: string, subLabel?: string, progress?: number, duration = 950) => {
+    if (hudTimerRef.current) {
+      clearTimeout(hudTimerRef.current);
+    }
+    setHud({
+      id: Date.now(),
+      icon,
+      label,
+      subLabel,
+      progress,
+    });
+    hudTimerRef.current = setTimeout(() => {
+      setHud(null);
+    }, duration);
+  }, []);
+
+  // IFrame への postMessage コマンド送信
+  const postPlayerCommand = useCallback((func: string, args: any[] = []) => {
+    try {
+      if(func==='playVideo')window.dispatchEvent(new CustomEvent('xerox-media-focus',{detail:'youtube'}));
+      if (iframeRef.current && iframeRef.current.contentWindow) {
+        iframeRef.current.contentWindow.postMessage(
+          JSON.stringify({
+            event: 'command',
+            func,
+            args,
+          }),
+          '*'
+        );
+      }
+    } catch (err) {
+      console.warn('postPlayerCommand error:', err);
+    }
+  }, []);
+
+  useEffect(()=>{const focus=(event:Event)=>{if((event as CustomEvent).detail!=='youtube')postPlayerCommand('pauseVideo');};window.addEventListener('xerox-media-focus',focus);return()=>window.removeEventListener('xerox-media-focus',focus);},[postPlayerCommand]);
+  useSleepTimer(()=>{postPlayerCommand('pauseVideo');cancelAutoNextCountdown();});
+  const cancelAutoNextCountdown = useCallback(() => {
+    if (countdownTimer.current !== null) clearTimeout(countdownTimer.current);
+    if (countdownTicker.current !== null) clearInterval(countdownTicker.current);
+    countdownTimer.current = null;
+    countdownTicker.current = null;
+    countdownTarget.current = null;
+    setAutoNextCountdown(null);
+  }, []);
+  const playAutoNextNow = useCallback(() => {
+    const next = countdownTarget.current;
+    cancelAutoNextCountdown();
+    if (next?.videoId) onVideoSelect(next.videoId, next);
+  }, [cancelAutoNextCountdown, onVideoSelect]);
+  const beginAutoNextCountdown = useCallback((next: Video) => {
+    cancelAutoNextCountdown();
+    countdownTarget.current = next;
+    const deadline = Date.now() + 10000;
+    setAutoNextCountdown({ video: next, seconds: 10 });
+    countdownTicker.current = setInterval(() => {
+      setAutoNextCountdown(previous => previous ? { ...previous, seconds: Math.max(1, Math.ceil((deadline - Date.now()) / 1000)) } : null);
+    }, 1000);
+    countdownTimer.current = setTimeout(playAutoNextNow, 10000);
+  }, [cancelAutoNextCountdown, playAutoNextNow]);
+  useEffect(() => {
+    cancelAutoNextCountdown();
+    endedHandled.current = false;
+  }, [requestedVideoId, videoId, cancelAutoNextCountdown]);
+  useEffect(() => {
+    if (!autoNext || playlistId || playlistQueue.length) cancelAutoNextCountdown();
+  }, [autoNext, playlistId, playlistQueue.length, cancelAutoNextCountdown]);
+  useEffect(() => () => {
+    if (countdownTimer.current !== null) clearTimeout(countdownTimer.current);
+    if (countdownTicker.current !== null) clearInterval(countdownTicker.current);
+  }, []);
+  const onPlaybackResumed = useCallback(() => {
+    cancelAutoNextCountdown();
+    endedHandled.current = false;
+  }, [cancelAutoNextCountdown]);
+  const handlePlaybackEnd = useCallback(() => {
+    if (endedHandled.current) return;
+    endedHandled.current = true;
+    if (consumeEndTimer()) { postPlayerCommand('pauseVideo'); return; }
+    if (repeatModeRef.current === 'one') {
+      postPlayerCommand('seekTo', [0, true]);
+      postPlayerCommand('playVideo');
+    } else if (playlistRef.current || playlistQueue.length) {
+      endedCallback.current?.();
+    } else if (autoNextRef.current && nextRelatedRef.current?.videoId) {
+      beginAutoNextCountdown(nextRelatedRef.current);
+    }
+  }, [postPlayerCommand, playlistQueue.length, beginAutoNextCountdown]);
+  // Keep the iframe player mounted while the countdown rerenders the page.
+  const playbackEndCallback = useRef(handlePlaybackEnd); playbackEndCallback.current = handlePlaybackEnd;
+  const playbackResumeCallback = useRef(onPlaybackResumed); playbackResumeCallback.current = onPlaybackResumed;
+  useEffect(() => {
+    if (!isMini) return;
+    window.dispatchEvent(new CustomEvent('xerox-mini-play-state', { detail: isPlaying }));
+    const toggle = () => { postPlayerCommand(isPlaying ? 'pauseVideo' : 'playVideo'); setIsPlaying(!isPlaying); };
+    window.addEventListener('xerox-mini-toggle-play', toggle);
+    return () => window.removeEventListener('xerox-mini-toggle-play', toggle);
+  }, [isMini, isPlaying, postPlayerCommand]);
+
+  useEffect(()=>{
+    if(!iframeUrl)return;
+    const sync=()=>{if(captionsEnabled){postPlayerCommand('loadModule',['captions']);postPlayerCommand('setOption',['captions','reload',true]);}else{postPlayerCommand('setOption',['captions','track',{}]);postPlayerCommand('unloadModule',['captions']);}};
+    sync();const timers=[400,1200,2400].map(delay=>window.setTimeout(sync,delay));return()=>timers.forEach(clearTimeout);
+  },[captionsEnabled,iframeUrl,postPlayerCommand]);
+  useEffect(()=>setCaptionsEnabled(false),[requestedVideoId]);
+
+  useEffect(() => { isMutedRef.current = isMuted; postPlayerCommand(isMuted ? 'mute' : 'unMute'); }, [isMuted,postPlayerCommand]);
+
+  // Load the public player API directly on this device.
+  useEffect(() => {
+    if (!iframeUrl || !iframeRef.current) return;
+    isMutedRef.current = readMuted();
+    let cancelled = false;
+    let poll: ReturnType<typeof setInterval> | undefined;
+    playerTimeReceivedRef.current = false;
+    loadPlayerApi().then(YT => {
+      if (cancelled || !iframeRef.current) return;
+      const player = new YT.Player(iframeRef.current, {
+        events: {
+          onStateChange: (event:any) => { if(cancelled)return;if(event.data===1&&playerStateRef.current!==1)window.dispatchEvent(new CustomEvent('xerox-media-focus',{detail:'youtube'}));playerStateRef.current=event.data;setIsPlaying(event.data===1);if(event.data===1)playbackResumeCallback.current();if(event.data===0)playbackEndCallback.current(); },
+          onReady: () => {
+            if (cancelled) return;
+            apiPlayerRef.current = player;
+            if(captionsEnabledRef.current){postPlayerCommand('loadModule',['captions']);postPlayerCommand('setOption',['captions','reload',true]);}else{postPlayerCommand('setOption',['captions','track',{}]);postPlayerCommand('unloadModule',['captions']);}
+            if (isMutedRef.current) player.mute();
+            else player.unMute();
+            const saved=readPlaybackPosition(requestedVideoId);
+            if(saved>0)player.seekTo(saved,true);
+            player.playVideo();
+            poll = setInterval(() => {
+              try {
+                const url = player.getVideoUrl?.();
+                if (typeof url === 'string' && url) {
+                  try { updatePlayingVideo(new URL(url).searchParams.get('v')); } catch { /* Wait for a valid video URL. */ }
+                }
+                const time = player.getCurrentTime();
+                if (typeof time === 'number' && Number.isFinite(time)) {
+                  currentTimeRef.current = time;
+                  playerTimeReceivedRef.current = true;
+                  savedSample.current={id:currentVideoIdRef.current,time,duration:player.getDuration?.()||durationRef.current,received:true};
+                }
+              } catch { /* Keep the last reported position. */ }
+            }, 250);
+          },
+        },
+      });
+    }).catch(error => console.warn('Player API could not be loaded:', error));
+    return () => {
+      cancelled = true;
+      if (poll) clearInterval(poll);
+      apiPlayerRef.current = null;
+    };
+  }, [iframeUrl, updatePlayingVideo]);
+
+  // YouTube IFrame API メッセージの受信 & 状態同期
+  useEffect(() => {
+    const handleMessage = (e: MessageEvent) => {
+      if (e.source !== iframeRef.current?.contentWindow) return;
+      try {
+        const data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
+        if (!data) return;
+        if ((data.event === 'infoDelivery' || data.event === 'initialDelivery') && data.info) {
+          updatePlayingVideo(data.info.videoData?.video_id);
+          if (typeof data.info.currentTime === 'number') {
+            currentTimeRef.current = data.info.currentTime;
+            playerTimeReceivedRef.current = true;
+            savedSample.current={id:currentVideoIdRef.current,time:data.info.currentTime,duration:data.info.duration||durationRef.current,received:true};
+          }
+          if (typeof data.info.duration === 'number' && data.info.duration > 0) {
+            durationRef.current = data.info.duration;
+          }
+          if (typeof data.info.playerState === 'number') {
+            if(data.info.playerState===1&&playerStateRef.current!==1)window.dispatchEvent(new CustomEvent('xerox-media-focus',{detail:'youtube'}));
+            if(data.info.playerState===1)playbackResumeCallback.current();if(data.info.playerState===0)playbackEndCallback.current();
+            playerStateRef.current = data.info.playerState;
+            setIsPlaying(data.info.playerState === 1);
+          }
+          if (typeof data.info.volume === 'number') {
+            volumeRef.current = data.info.volume;
+          }
+          if (typeof data.info.muted === 'boolean') {
+            // Keep the explicit user preference when a newly loaded iframe reports its default mute state.
+            if (data.info.muted !== isMutedRef.current) postPlayerCommand(isMutedRef.current ? 'mute' : 'unMute');
+          }
+          if (typeof data.info.playbackRate === 'number') {
+            playbackRateRef.current = data.info.playbackRate;
+          }
+        }
+      } catch {}
+    };
+
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [updatePlayingVideo]);
+
+  useEffect(() => {
+    const save=()=>{const sample=savedSample.current;if(sample.received)savePlaybackPosition(sample.id,sample.time,sample.duration);};
+    const timer=setInterval(save,4000);
+    window.addEventListener('pagehide',save);document.addEventListener('visibilitychange',save);
+    return()=>{save();clearInterval(timer);window.removeEventListener('pagehide',save);document.removeEventListener('visibilitychange',save);};
+  },[videoId]);
+
+  // 動画変更時に duration / currentTime の初期化
+  useEffect(() => {
+    currentTimeRef.current = 0;
+    playerTimeReceivedRef.current = false;
+    const rawDuration = (activeVideo as any).duration;
+    if (activeVideo.lengthSeconds && activeVideo.lengthSeconds > 0) {
+      durationRef.current = activeVideo.lengthSeconds;
+    } else if (typeof rawDuration === 'string') {
+      const parts = rawDuration.split(':').map((p: string) => parseInt(p, 10));
+      if (!parts.some((n: number) => isNaN(n))) {
+        if (parts.length === 3) durationRef.current = parts[0] * 3600 + parts[1] * 60 + parts[2];
+        else if (parts.length === 2) durationRef.current = parts[0] * 60 + parts[1];
+        else if (parts.length === 1) durationRef.current = parts[0];
+      }
+    }
+  }, [activeVideo.videoId, (activeVideo as any).duration, activeVideo.lengthSeconds]);
+
+  // iframe 読み込み完了時に listening 要求を送信
+  const handleIframeLoad = () => {
+    if(captionsEnabledRef.current){postPlayerCommand('loadModule',['captions']);postPlayerCommand('setOption',['captions','reload',true]);}else{postPlayerCommand('setOption',['captions','track',{}]);postPlayerCommand('unloadModule',['captions']);}
+    try {
+      if (iframeRef.current && iframeRef.current.contentWindow) {
+        iframeRef.current.contentWindow.postMessage(
+          JSON.stringify({ event: 'listening' }),
+          '*'
+        );
+      }
+    } catch {}
+  };
+
+  // グローバルキーボードショートカットハンドラー
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Let browsing shortcuts work unless the mini player itself has focus.
+      if (isMini && !playerContainerRef.current?.contains(document.activeElement)) return;
+      // ブラウザ標準ショートカット(Ctrl/Cmd/Alt)を優先
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+      // 入力要素にフォーカスがある場合は無効化
+      const activeEl = document.activeElement;
+      const isInput =
+        activeEl instanceof HTMLInputElement ||
+        activeEl instanceof HTMLTextAreaElement ||
+        (activeEl as HTMLElement)?.isContentEditable ||
+        Boolean(activeEl?.closest('input, textarea, [contenteditable="true"]'));
+      if (isInput) return;
+
+      const key = e.key;
+
+      // 1. K または Space: 再生 / 一時停止
+      if (key === 'k' || key === 'K' || key === ' ') {
+        e.preventDefault();
+        const willPlay = playerStateRef.current !== 1;
+        if (willPlay) {
+          postPlayerCommand('playVideo');
+          playerStateRef.current = 1;
+          setIsPlaying(true);
+          triggerHud(<Play size={24} className="text-white fill-white" />, '再生');
+        } else {
+          postPlayerCommand('pauseVideo');
+          playerStateRef.current = 2;
+          setIsPlaying(false);
+          triggerHud(<Pause size={24} className="text-white fill-white" />, '一時停止');
+        }
+        return;
+      }
+
+      // 2. J: 10秒 巻き戻し
+      if (key === 'j' || key === 'J') {
+        e.preventDefault();
+        const target = Math.max(0, currentTimeRef.current - 10);
+        currentTimeRef.current = target;
+        postPlayerCommand('seekTo', [target, true]);
+        triggerHud(<RotateCcw size={22} />, '10秒 巻き戻し', formatDuration(target));
+        return;
+      }
+
+      // 3. L: 10秒 早送り
+      if (key === 'l' || key === 'L') {
+        e.preventDefault();
+        const maxTime = durationRef.current > 0 ? durationRef.current : 86400;
+        const target = Math.min(maxTime, currentTimeRef.current + 10);
+        currentTimeRef.current = target;
+        postPlayerCommand('seekTo', [target, true]);
+        triggerHud(<RotateCw size={22} />, '10秒 早送り', formatDuration(target));
+        return;
+      }
+
+      // 4. 左矢印: 5秒 巻き戻し
+      if (key === 'ArrowLeft') {
+        e.preventDefault();
+        const target = Math.max(0, currentTimeRef.current - 5);
+        currentTimeRef.current = target;
+        postPlayerCommand('seekTo', [target, true]);
+        triggerHud(<RotateCcw size={22} />, '5秒 巻き戻し', formatDuration(target));
+        return;
+      }
+
+      // 5. 右矢印: 5秒 早送り
+      if (key === 'ArrowRight') {
+        e.preventDefault();
+        const maxTime = durationRef.current > 0 ? durationRef.current : 86400;
+        const target = Math.min(maxTime, currentTimeRef.current + 5);
+        currentTimeRef.current = target;
+        postPlayerCommand('seekTo', [target, true]);
+        triggerHud(<RotateCw size={22} />, '5秒 早送り', formatDuration(target));
+        return;
+      }
+
+      // 6. M: 消音（ミュート）切り替え
+      if (key === 'm' || key === 'M') {
+        e.preventDefault();
+        const newMuted = !isMutedRef.current;
+        isMutedRef.current = newMuted;
+        setIsMuted(newMuted);
+        postPlayerCommand(newMuted ? 'mute' : 'unMute');
+        if (newMuted) {
+          triggerHud(<VolumeX size={22} />, '消音 (ミュート)');
+        } else {
+          triggerHud(<Volume2 size={22} />, `消音解除 (${Math.round(volumeRef.current)}%)`, undefined, volumeRef.current);
+        }
+        return;
+      }
+
+      // 7. 上矢印: 音量 +5%
+      if (key === 'ArrowUp') {
+        e.preventDefault();
+        const newVol = Math.min(100, Math.round(volumeRef.current + 5));
+        volumeRef.current = newVol;
+        if (isMutedRef.current) {
+          isMutedRef.current = false;
+          setIsMuted(false);
+          postPlayerCommand('unMute');
+        }
+        postPlayerCommand('setVolume', [newVol]);
+        triggerHud(<Volume2 size={22} />, `音量 ${newVol}%`, undefined, newVol);
+        return;
+      }
+
+      // 8. 下矢印: 音量 -5%
+      if (key === 'ArrowDown') {
+        e.preventDefault();
+        const newVol = Math.max(0, Math.round(volumeRef.current - 5));
+        volumeRef.current = newVol;
+        postPlayerCommand('setVolume', [newVol]);
+        if (newVol === 0) {
+          triggerHud(<VolumeX size={22} />, '音量 0%', undefined, 0);
+        } else {
+          triggerHud(<Volume2 size={22} />, `音量 ${newVol}%`, undefined, newVol);
+        }
+        return;
+      }
+
+      // 9. F: 全画面切り替え
+      if (key === 'f' || key === 'F') {
+        e.preventDefault();
+        if (!document.fullscreenElement) {
+          if (playerContainerRef.current?.requestFullscreen) {
+            playerContainerRef.current.requestFullscreen().catch(() => {});
+            triggerHud(<Maximize2 size={22} />, '全画面表示');
+          }
+        } else {
+          if (document.exitFullscreen) {
+            document.exitFullscreen().catch(() => {});
+            triggerHud(<Minimize2 size={22} />, '全画面解除');
+          }
+        }
+        return;
+      }
+
+      // 10. 0 〜 9: 動画の 0%〜90% の位置へジャンプ
+      if (/^[0-9]$/.test(key) && !e.shiftKey) {
+        if (durationRef.current > 0) {
+          e.preventDefault();
+          const pct = parseInt(key, 10) * 10;
+          const target = (durationRef.current * pct) / 100;
+          currentTimeRef.current = target;
+          postPlayerCommand('seekTo', [target, true]);
+          triggerHud(<FastForward size={22} />, `${pct}% へジャンプ`, formatDuration(target), pct);
+        }
+        return;
+      }
+
+      // 11. < (Shift+,) または > (Shift+.): 再生速度の調整
+      if (key === '<' || (e.shiftKey && key === ',')) {
+        e.preventDefault();
+        const speeds = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+        let idx = speeds.indexOf(playbackRateRef.current);
+        if (idx === -1) idx = speeds.indexOf(1);
+        const nextIdx = Math.max(0, idx - 1);
+        const newSpeed = speeds[nextIdx];
+        playbackRateRef.current = newSpeed;
+        postPlayerCommand('setPlaybackRate', [newSpeed]);
+        triggerHud(<Gauge size={22} />, `再生速度 ${newSpeed}x`);
+        return;
+      }
+      if (key === '>' || (e.shiftKey && key === '.')) {
+        e.preventDefault();
+        const speeds = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+        let idx = speeds.indexOf(playbackRateRef.current);
+        if (idx === -1) idx = speeds.indexOf(1);
+        const nextIdx = Math.min(speeds.length - 1, idx + 1);
+        const newSpeed = speeds[nextIdx];
+        playbackRateRef.current = newSpeed;
+        postPlayerCommand('setPlaybackRate', [newSpeed]);
+        triggerHud(<Gauge size={22} />, `再生速度 ${newSpeed}x`);
+        return;
+      }
+
+      // 12. Shift + N: 次の動画へ移動
+      if (e.shiftKey && (key === 'N' || key === 'n')) {
+        if (relatedVideos && relatedVideos.length > 0) {
+          e.preventDefault();
+          const nextVid = relatedVideos[0];
+          const nextId = nextVid.videoId || (nextVid as any).id;
+          if (nextId) {
+            triggerHud(<SkipForward size={22} />, '次の動画を再生', nextVid.title);
+            setTimeout(() => {
+              onVideoSelect(nextId, nextVid);
+            }, 250);
+          }
+        }
+        return;
+      }
+
+      // 13. ? または Shift + /: ショートカットヘルプ表示
+      if (key === '?' || (e.shiftKey && key === '/')) {
+        e.preventDefault();
+        setShowShortcutsModal((prev) => !prev);
+        return;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [postPlayerCommand, triggerHud, relatedVideos, onVideoSelect, isMini]);
+
+  // Fetch video metadata & initial comments
+  useEffect(() => {
+    let cancelled = false;
+    setComments([]);setCommentsError('');
+    setCommentPage(1);
+    setCommentSort('top');
+    setHasMoreComments(false);
+    setRelatedPage(1);
+    setHasMoreRelated(false);
+    setRelatedVideos([]);
+
+    const fetchVideo = async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const data = await fetchJSON(`/api/video/${videoId}`);
+        if (cancelled) return;
+        if (data && (data.title || data.videoId)) {
+          setVideoData(data);
+          setIsFallback(false);
+          activeVideoRef.current = data;
+
+          if (data.isPlayerOnly) {
+            setSidebarTab('related');
+            setComments([]);
+            setHasMoreComments(false);
+            setLoadingComments(false);
+            return;
+          }
+
+          if (data && data.recommendedVideos) {
+            setRelatedVideos(prioritizeUnshown(data.recommendedVideos));
+            setRelatedPage(1);setHasMoreRelated(true);
+          }
+
+          // Local Intelligence Analysis
+          if (data) {
+            localAI.processVideoInteraction(data, 1.5);
+            if (onRecordHistory) {
+              onRecordHistory(data);
+            }
+          }
+          if (onCacheVideo && data) {
+            onCacheVideo(data);
+          }
+
+          // If it's a real live stream, auto-switch sidebar to live chat
+          if (data?.isLive && !data?.isPremiere && !data?.isUpcoming) {
+            setSidebarTab('liveChat');
+            setIsRelatedOpen(true);
+          } else {
+            setSidebarTab('related');
+          }
+        } else {
+          throw new Error('動画情報を取得できませんでした');
+        }
+      } catch (err: any) {
+        if (cancelled) return;
+        console.warn('Video metadata fetch failed, using fallback with edukey player:', err);
+        setIsFallback(true);
+        setVideoData(fallbackVideo);
+        activeVideoRef.current = fallbackVideo;
+        if (onRecordHistory) {
+          onRecordHistory(fallbackVideo);
+        }
+        setSidebarTab(initialVideo && 'isLive' in initialVideo && initialVideo.isLive ? 'liveChat' : 'related');
+        if (initialVideo && 'isLive' in initialVideo && initialVideo.isLive) setIsRelatedOpen(true);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    const fetchComments = async () => {
+      setLoadingComments(true);
+      try {
+        const res = await fetchJSON(`/api/video/${videoId}/comments?limit=20&sort=top&page=1`);
+        if (cancelled) return;
+        if (res && res.isPlayerOnly) {
+          setComments([]);
+          setHasMoreComments(false);
+          return;
+        }
+        const newComments = Array.isArray(res) ? res : res.comments || [];
+        setComments(newComments);
+        setHasMoreComments(res.hasMore !== undefined ? res.hasMore : newComments.length > 0);
+
+        if (activeVideo && activeVideo.recommendedVideos) {
+          localAI.processMetadataAnalysis(videoId, newComments, activeVideo.recommendedVideos);
+        }
+      } catch (err) {
+        if(!cancelled)setCommentsError('コメントを取得できませんでした。');
+      } finally {
+        if (!cancelled) setLoadingComments(false);
+      }
+    };
+
+    fetchVideo();
+    fetchComments();
+    setIsDescExpanded(false);
+    return () => { cancelled = true; };
+  }, [videoId]);
+
+  // コメント並び替えの切り替え (人気順・新しい順)
+  const handleCommentSortChange = async (sort: 'top' | 'newest', retry=false) => {
+    if ((!retry&&sort === commentSort) || loadingComments || loadingMoreComments) return;
+    const context=videoId+'|'+sort;commentContext.current=context;
+    setCommentSort(sort);setComments([]);setCommentPage(1);setHasMoreComments(false);setLoadingComments(true);setCommentsError('');
+    try {
+      const res=await fetchJSON(`/api/video/${videoId}/comments?limit=20&sort=${sort}&page=1`);
+      if(context!==commentContext.current)return;
+      const items:Comment[]=Array.isArray(res)?res:res.comments||[];
+      setComments(items);setCommentPage(1);setHasMoreComments(res.hasMore!==undefined?res.hasMore:items.length>0);
+    }catch{if(context===commentContext.current)setCommentsError('コメントを取得できませんでした。');}
+    finally{if(context===commentContext.current)setLoadingComments(false);}
+  };
+
+  const loadMoreComments = useCallback(async () => {
+    if(!commentsVisibleRef.current||commentPageRequest.current||loadingComments||loadingMoreComments||!hasMoreComments||!videoId)return;
+    const request={controller:new AbortController(),context:commentContext.current};commentPageRequest.current=request;
+    setLoadingMoreComments(true);setCommentsError('');
+    try{
+      const nextPage=commentPage+1;
+      const res=await fetchJSON(`/api/video/${videoId}/comments?limit=20&sort=${commentSort}&page=${nextPage}`,{signal:request.controller.signal});
+      if(request.controller.signal.aborted||request.context!==commentContext.current)return;
+      const items:Comment[]=Array.isArray(res)?res:res.comments||[];
+      setComments(previous=>{const seen=new Set(previous.map(c=>c.id));return [...previous,...items.filter(c=>!seen.has(c.id)&&(seen.add(c.id),true))];});
+      setCommentPage(nextPage);setHasMoreComments(res.hasMore!==undefined?res.hasMore:items.length>0);
+    }catch{if(!request.controller.signal.aborted&&request.context===commentContext.current)setCommentsError('続きのコメントを取得できませんでした。');}
+    finally{if(commentPageRequest.current===request){commentPageRequest.current=null;setLoadingMoreComments(false);}}
+  },[loadingComments,loadingMoreComments,hasMoreComments,videoId,commentPage,commentSort]);
+
+  // 関連動画の次ページ自動取得 (無限スクロール)
+  const loadMoreRelated = useCallback(async () => {
+    if (!relatedVisible.current || relatedBusy.current || loadingMoreRelated || !hasMoreRelated || !videoId) return;
+    relatedBusy.current=true;
+    setLoadingMoreRelated(true);
+    try {
+      const nextPage = relatedPage + 1;
+      const res = await fetchJSON(`/api/video/${videoId}/related?page=${nextPage}&filter=${relatedFilter}`);
+      const newItems: Video[] = Array.isArray(res) ? res : res.videos || [];
+      if (newItems.length > 0) {
+        setRelatedVideos((prev) => {
+          const existingIds = new Set(prev.map(v => v.videoId));
+          const filtered = newItems.filter(v => v.videoId && !existingIds.has(v.videoId));
+          return [...prev, ...filtered];
+        });
+        setRelatedPage(nextPage);
+        setHasMoreRelated(res.hasMore !== undefined ? res.hasMore : true);
+      } else {
+        setHasMoreRelated(false);
+      }
+    } catch (err) {
+      console.error('Failed to load more related videos', err);
+      setHasMoreRelated(false);
+    } finally {
+      relatedBusy.current=false;setLoadingMoreRelated(false);
+    }
+  }, [loadingMoreRelated, hasMoreRelated, videoId, relatedPage, relatedFilter]);
+
+  // Hidden overlays and mini players must never trigger comment pagination.
+  useEffect(()=>{
+    const target=commentsEndRef.current;
+    if(!commentsVisible||!target||!hasMoreComments||loadingComments||loadingMoreComments||commentsError)return;
+    const root=commentsOverlay?commentsSectionRef.current:null;
+    const observer=new IntersectionObserver(entries=>{if(commentsVisibleRef.current&&entries.some(entry=>entry.isIntersecting))void loadMoreComments();},{root,rootMargin:'0px',threshold:1});
+    observer.observe(target);
+    const scrollTarget=root||window;
+    const scroll=()=>{
+      if(!commentsVisibleRef.current||!target.getClientRects().length)return;
+      const rect=target.getBoundingClientRect(),bounds=root?.getBoundingClientRect();
+      if(rect.height>0&&rect.top<=(bounds?.bottom??window.innerHeight)&&rect.bottom>=(bounds?.top??0))void loadMoreComments();
+    };
+    scrollTarget.addEventListener('scroll',scroll,{passive:true});
+    return()=>{observer.disconnect();scrollTarget.removeEventListener('scroll',scroll);};
+  },[commentsVisible,commentsOverlay,loadMoreComments,hasMoreComments,loadingComments,loadingMoreComments,commentsError]);
+
+  // 関連動画の自動無限スクロール監視 (IntersectionObserver & スクロールフォールバック)
+  useEffect(() => {
+    const target = relatedEndRef.current;
+    if (!relatedVisible.current || !target || !hasMoreRelated || loadingMoreRelated) return;
+    const observer = new IntersectionObserver((entries) => {
+      if (relatedVisible.current && entries[0].isIntersecting) {
+        loadMoreRelated();
+      }
+    }, { rootMargin: '200px' });
+    observer.observe(target);
+
+    const handleWindowScroll = () => {
+      if (!relatedVisible.current || !relatedEndRef.current || !hasMoreRelated || loadingMoreRelated) return;
+      const rect = relatedEndRef.current.getBoundingClientRect();
+      if (rect.height > 0 && rect.top <= window.innerHeight + 200 && rect.bottom >= 0) {
+        loadMoreRelated();
+      }
+    };
+    window.addEventListener('scroll', handleWindowScroll, { passive: true });
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('scroll', handleWindowScroll);
+    };
+  }, [loadMoreRelated, hasMoreRelated, loadingMoreRelated,isMini,isRelatedOpen,sidebarTab]);
+
+  const handleAddComment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newComment.trim()) return;
+    if(youtubeLinked){if(await youtubeAction('comment',{text:newComment.trim()})){setNewComment('');setYoutubeActionError('YouTubeへコメントを送信しました。反映に時間がかかる場合があります。');}return;}
+    setYoutubeActionError('YouTubeへ投稿するにはマイページでGoogleアカウントを連携してください。');
+  };
+
+  if (loading && !iframeUrl) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center min-h-[calc(100vh-4rem)] gap-3 bg-white text-gray-900">
+        <Loader2 className="w-10 h-10 text-red-600 animate-spin" />
+        <span className="text-sm font-semibold text-gray-700">プレイヤーを準備しています...</span>
+      </div>
+    );
+  }
+
+  if (!videoId) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center min-h-[calc(100vh-4rem)] bg-white text-gray-900 gap-3">
+        <AlertCircle className="w-12 h-12 text-red-500" />
+        <p className="text-lg font-bold">動画IDが指定されていません</p>
+      </div>
+    );
+  }
+
+  const isLive = !!(activeVideo.isLive && !activeVideo.isPremiere && !activeVideo.isUpcoming);
+  const hasChat = isLive || !!activeVideo.hasLiveChat || !!activeVideo.isLiveContent;
+
+  const cleanAuthorName = activeVideo.author ? activeVideo.author.split(/、他|\s*and\s+\d+\s+other/i)[0].trim() : 'チャンネル';
+
+  const isSubscribed = subscriptions.some(s =>
+    s.id === activeVideo.authorId || s.title === cleanAuthorName || s.title === activeVideo.author
+  );
+
+  const handleSubClick = () => {
+    onToggleSubscribe({
+      id: activeVideo.authorId || cleanAuthorName,
+      title: cleanAuthorName,
+      avatar: activeVideo.authorAvatar
+    });
+  };
+
+  // 過去の視聴履歴（現在再生中の動画を除く最大5件）
+  const pastHistoryVideos = watchHistory
+    .filter(h => h.videoId !== videoId)
+    .slice(0, 5)
+    .map(h => ({
+      videoId: h.videoId,
+      title: h.title,
+      author: h.author || 'チャンネル',
+      authorAvatar: h.authorAvatar,
+      videoThumbnails: [{ url: h.thumbnailUrl || `https://i.ytimg.com/vi/${h.videoId}/hqdefault.jpg`, width: 480, height: 360 }],
+      viewCount: 0,
+      publishedText: '視聴済み',
+      lengthSeconds: 0,
+      type: 'video'
+    }));
+
+  const renderTextWithMentionsAndLinks = (text: string) => <RichText text={text || '動画の概要説明はありません。'} onSelectChannel={id=>{setIsDescExpanded(false);onSelectChannel(id);}} onSelectVideo={id=>{setIsDescExpanded(false);onVideoSelect(id);}} onTimestamp={seconds=>postPlayerCommand('seekTo',[seconds,true])}/>;
+
+  const renderTitleWithMentions = (text: string) => {
+    if (!text) return null;
+    const regex = /(@[a-zA-Z0-9_\-\.]+)/g;
+    const parts = text.split(regex);
+    return parts.map((part, i) => {
+      if (/^@/.test(part)) {
+        return (
+          <button
+            key={i}
+            onClick={(e) => { e.stopPropagation(); onSelectChannel(part); }}
+            className="text-blue-600 hover:underline cursor-pointer"
+          >
+            {part}
+          </button>
+        );
+      }
+      return <span key={i}>{part}</span>;
+    });
+  };
+
+  const handleAuthorClick = () => {
+    if (activeVideo.multipleChannelIds && activeVideo.multipleChannelIds.length > 1) {
+      setShowMultiChannelDialog(true);
+    } else {
+      onSelectChannel(activeVideo.authorId || activeVideo.author);
+    }
+  };
+
+  // 通常の関連動画リストの中にしれっと過去履歴をブレンド
+  const blendedRecommendations: any[] = [];
+  const baseRecs = relatedVideos.length > 0 ? relatedVideos : (activeVideo.recommendedVideos || []);
+
+  let filteredRecs = baseRecs;
+  if (relatedFilter === 'author') {
+    filteredRecs = baseRecs.filter(v => v.author === activeVideo.author || v.authorId === activeVideo.authorId);
+  } else if (relatedFilter === 'recent') {
+    filteredRecs = [...baseRecs].reverse();
+  }
+
+  let histIdx = 0;
+  if (filteredRecs.length === 0) {
+    blendedRecommendations.push(...pastHistoryVideos);
+  } else {
+    filteredRecs.forEach((item, index) => {
+      blendedRecommendations.push(item);
+      // 2つ目、5つ目、8つ目... の位置にしれっと履歴動画を差し込む
+      if ((index % 3 === 1) && histIdx < pastHistoryVideos.length) {
+        blendedRecommendations.push(pastHistoryVideos[histIdx]);
+        histIdx++;
+      }
+    });
+    while (histIdx < pastHistoryVideos.length) {
+      blendedRecommendations.push(pastHistoryVideos[histIdx]);
+      histIdx++;
+    }
+  }
+
+  nextRelatedRef.current = blendedRecommendations.find((item: Video) => item.videoId && item.videoId !== videoId && !item.isShort) || null;
+
+  return (
+    <div className="persistent-video-content flex-1 w-full max-w-[2400px] mx-auto p-2 sm:p-4 lg:p-6 flex flex-col md:flex-row gap-6 bg-white text-gray-900 min-h-[calc(100vh-3.5rem)]">
+      {/* メイン動画プレイヤーセクション */}
+      <div className="flex-1 min-w-0 md:flex-[1_1_72%] lg:flex-[1_1_75%] xl:flex-[1_1_78%]">
+        <div
+          ref={playerContainerRef}
+          tabIndex={0}
+          className="w-full aspect-video bg-black rounded-2xl overflow-hidden shadow-xl border border-gray-200 relative max-h-[85vh] group outline-hidden focus:ring-2 focus:ring-blue-500/20"
+        >
+          {iframeUrl ? (
+            <iframe
+              ref={iframeRef}
+              src={iframeUrl}
+              style={videoEffectsStyle(playerPreferences)}
+              onLoad={handleIframeLoad}
+              className="w-full h-full border-0"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              allowFullScreen
+              title={activeVideo.title}
+            ></iframe>
+          ) : (
+            <div className="w-full h-full flex flex-col items-center justify-center text-white gap-2">
+              <Loader2 className="w-8 h-8 animate-spin text-red-500" />
+              <span className="text-xs text-gray-400">edukeyプレイヤーを準備中...</span>
+            </div>
+          )}
+
+          {/* YouTube-like 10-second end screen. Playlist playback is handled separately. */}
+          {autoNextCountdown && (
+            <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/95 p-4 text-white" role="status" aria-live="polite">
+              <div className="w-full max-w-[440px] space-y-4 text-center">
+                <p className="text-xs font-semibold tracking-wide text-gray-300">次の動画</p>
+                <div className="flex items-center gap-3 rounded-xl bg-white/10 p-3 text-left">
+                  <img src={autoNextCountdown.video.videoThumbnails?.[0]?.url || `https://i.ytimg.com/vi/${autoNextCountdown.video.videoId}/hqdefault.jpg`} alt="" className="aspect-video w-28 max-w-[35%] shrink-0 rounded-lg object-cover" />
+                  <div className="min-w-0 flex-1"><p className="line-clamp-2 text-sm font-semibold">{autoNextCountdown.video.title}</p><p className="mt-1 truncate text-xs text-gray-300">{autoNextCountdown.video.author}</p></div>
+                </div>
+                <p className="text-sm"><strong className="text-xl tabular-nums">{autoNextCountdown.seconds}</strong> 秒後に自動再生</p>
+                <div className="h-1.5 overflow-hidden rounded-full bg-white/25"><div className="h-full bg-red-500 transition-[width] duration-200" style={{width: `${(10 - autoNextCountdown.seconds) * 10}%`}} /></div>
+                <div className="flex justify-center gap-3 text-sm font-semibold">
+                  <button type="button" onClick={cancelAutoNextCountdown} className="min-h-11 rounded-full border border-white/50 px-5 hover:bg-white/10">キャンセル</button>
+                  <button type="button" onClick={playAutoNextNow} className="min-h-11 rounded-full bg-white px-5 text-black hover:bg-gray-200">今すぐ再生</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* HUD (ショートカットキー入力時の視覚フィードバック) */}
+          <AnimatePresence>
+            {hud && (
+              <motion.div
+                key={hud.id}
+                initial={{ opacity: 0, scale: 0.85, y: -8 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.15 } }}
+                className="absolute top-6 left-1/2 -translate-x-1/2 z-30 pointer-events-none flex max-w-[min(92vw,420px)] flex-col items-center gap-1.5 px-4 py-2.5 bg-black/85 backdrop-blur-md text-white rounded-2xl shadow-2xl border border-white/15 select-none min-w-[130px] text-center"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-white drop-shadow-xs">{hud.icon}</span>
+                  <span className="text-sm font-semibold tracking-wide">{hud.label}</span>
+                </div>
+                {hud.subLabel && (
+                  <span className="text-[11px] text-gray-300 font-mono tracking-tight">{hud.subLabel}</span>
+                )}
+                {typeof hud.progress === 'number' && (
+                  <div className="w-24 h-1.5 bg-white/20 rounded-full overflow-hidden mt-0.5">
+                    <div
+                      className="h-full bg-red-500 rounded-full transition-all duration-150"
+                      style={{ width: `${Math.max(0, Math.min(100, hud.progress))}%` }}
+                    />
+                  </div>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        <div className="mt-4 flex flex-col">
+          {youtubeActionError&&<p role="status" className="mb-3 rounded-lg bg-gray-100 p-3 text-xs">{youtubeActionError}</p>}
+          {/* 実際のライブ配信時のみバッジを表示 */}
+          {isLive && (
+            <div className="flex items-center gap-2 mb-2">
+              <span className="inline-flex items-center gap-1.5 bg-red-600 text-white text-xs font-bold px-2.5 py-1 rounded-full shadow-xs animate-pulse">
+                <span className="w-2 h-2 bg-white rounded-full"></span>
+                ライブ配信中
+              </span>
+              {activeVideo.liveViewerCount && activeVideo.liveViewerCount > 0 ? (
+                <span className="text-xs text-gray-600 font-medium flex items-center gap-1 bg-gray-100 px-2.5 py-1 rounded-full">
+                  <Users size={13} className="text-gray-500" />
+                  {formatNumberJP(activeVideo.liveViewerCount)} 人が視聴中
+                </span>
+              ) : null}
+            </div>
+          )}
+
+          <h1 className="text-lg lg:text-xl font-bold text-gray-900 mb-3 leading-snug break-all">
+            <button type="button" className="watch-title-button" aria-label="動画タイトルから概要欄を開く" onClick={() => setIsDescExpanded(true)}>{activeVideo.title}</button>
+          </h1>
+          <button type="button" className="mobile-title-details" aria-label="動画の概要を開く" onClick={()=>setIsDescExpanded(true)}>{formatNumberJP(activeVideo.viewCount)} 回視聴 · {activeVideo.publishedText}<strong>…もっと見る</strong></button>
+
+          <div className="watch-details-row flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-gray-200">
+            {/* チャンネル情報 */}
+            <div className="watch-channel-row flex items-center gap-3">
+              <button
+                onClick={handleAuthorClick}
+                className="hover:scale-105 active:scale-95 transition-transform duration-150"
+                title={`${activeVideo.author}のチャンネルを開く`}
+              >
+                <Avatar
+                  src={activeVideo.authorAvatar}
+                  name={activeVideo.author}
+                  channelId={activeVideo.authorId}
+                  videoId={activeVideo.videoId}
+                  className="w-11 h-11 text-base shadow-xs"
+                />
+              </button>
+
+              <div className="watch-channel-name flex flex-col">
+                <button
+                  onClick={handleAuthorClick}
+                  className="flex items-center gap-1 text-left hover:underline"
+                >
+                  <h3 className="font-bold text-gray-900 text-[15px] max-w-[200px] sm:max-w-xs truncate">
+                    {activeVideo.author}
+                    {activeVideo.multipleChannelIds && activeVideo.multipleChannelIds.length > 1 && (
+                      <span className="text-gray-500 font-normal ml-1">...他 {activeVideo.multipleChannelIds.length - 1} チャンネル</span>
+                    )}
+                  </h3>
+                  <span className="w-3.5 h-3.5 bg-gray-500 rounded-full flex items-center justify-center text-white text-[8px] font-bold shrink-0">✓</span>
+                </button>
+                {(!activeVideo.multipleChannelIds || activeVideo.multipleChannelIds.length <= 1) && (
+                  <p className="text-xs font-normal text-gray-500">
+                    {activeVideo.subCount ? `登録者数 ${formatNumberJP(activeVideo.subCount)}人` : '登録者数 非公開'}
+                  </p>
+                )}
+              </div>
+
+              <motion.button
+                onClick={handleSubClick}
+                whileTap={{ scale: 0.93 }}
+                className={`watch-subscribe ml-4 px-4 py-2 text-xs font-bold rounded-full transition-colors duration-200 shadow-xs ${
+                  isSubscribed
+                    ? 'bg-gray-100 text-gray-800 hover:bg-gray-200 border border-gray-200'
+                    : 'bg-gray-900 hover:bg-black text-white'
+                }`}
+              >
+                {isSubscribed ? (
+                  <span className="flex items-center gap-1.5">
+                    <Bell size={13} className="animate-bell-ring text-gray-700" />
+                    <span>登録済み</span>
+                  </span>
+                ) : (
+                  <><span className="sm:hidden">登録</span><span className="hidden sm:inline">チャンネル登録</span></>
+                )}
+              </motion.button>
+            </div>
+
+            {/* アクションボタン */}
+            <div className="watch-actions flex items-center gap-2 overflow-x-auto no-scrollbar">
+              <PlaybackSettings>{youtubeLinked&&<button className="playback-toggle" disabled={youtubeActionBusy} onClick={async()=>{if(await youtubeAction('watchLater'))setYoutubeActionError('YouTubeの「後で見る」に追加しました。');}}>YouTubeの「後で見る」に追加</button>}</PlaybackSettings>
+              <div className="flex items-center bg-gray-100 rounded-full p-0.5 border border-gray-200 shadow-2xs">
+                <motion.button
+                  onClick={handleLike}
+                  aria-label="高く評価"
+                  disabled={youtubeActionBusy}
+                  whileTap={{ scale: 0.88 }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-l-full transition-colors duration-150 ${
+                    isLiked ? 'text-blue-600 bg-blue-50' : 'text-gray-800 hover:bg-gray-200'
+                  }`}
+                >
+                  <ThumbsUp size={15} className={`${isLiked ? 'fill-blue-600 text-blue-600 animate-yt-pop' : ''}`} />
+                  <span>{formatNumberJP((activeVideo.likeCount || 0) + likeCountDelta)}</span>
+                </motion.button>
+                <div className="w-[1px] h-4 bg-gray-300"></div>
+                <motion.button
+                  onClick={handleDislike}
+                  aria-label="低く評価"
+                  disabled={youtubeActionBusy}
+                  whileTap={{ scale: 0.88 }}
+                  className={`px-3 py-1.5 text-xs rounded-r-full transition-colors duration-150 ${
+                    isDisliked ? 'text-blue-600 bg-blue-50' : 'text-gray-800 hover:bg-gray-200'
+                  }`}
+                >
+                  <ThumbsDown size={15} className={`${isDisliked ? 'fill-blue-600 text-blue-600 animate-yt-pop' : ''}`} />
+                </motion.button>
+              </div>
+
+              {onRequestPip&&<button type="button" aria-label="画面内PiPで再生" title="動画を小窓にしてサイト内を閲覧" onClick={onRequestPip} className="p-2 rounded-full bg-gray-100 hover:bg-gray-200"><PictureInPicture2 size={19}/></button>}
+              {/* 通常動画の自動再生は高評価などと同じ操作列に置く。 */}
+              {!playlistId && !playlistQueue.length && !isMini && (
+                <motion.button
+                  type="button"
+                  role="switch"
+                  aria-checked={autoNext}
+                  aria-label="次の動画を自動再生"
+                  title={autoNext ? '動画終了10秒後に次の関連動画を再生します' : '動画終了後に自動で次へ進みません'}
+                  onClick={() => setAutoNext(value => !value)}
+                  whileTap={{ scale: 0.92 }}
+                  className={`shrink-0 inline-grid h-9 w-9 place-items-center rounded-full border shadow-2xs transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-600 ${autoNext ? 'border-gray-900 bg-gray-900 text-white hover:bg-gray-800' : 'border-gray-200 bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                >
+                  <SkipForward size={19} aria-hidden="true" />
+                </motion.button>
+              )}
+
+              <motion.button
+                aria-label="共有"
+                title="共有"
+                onClick={() => {
+                  if (navigator.share) {
+                    navigator.share({ title: activeVideo.title, url: window.location.href }).catch(() => {});
+                  } else {
+                    navigator.clipboard.writeText(window.location.href);
+                    setCopiedToast(true);
+                    setTimeout(() => setCopiedToast(false), 2500);
+                  }
+                }}
+                whileTap={{ scale: 0.92 }}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-full text-xs font-semibold border border-gray-200 transition-colors shadow-2xs"
+              >
+                <Share2 size={18} />
+              </motion.button>
+
+              <motion.button
+                onClick={handleReloadPlayer}
+                aria-label="プレイヤーを再読み込み"
+                whileTap={{ scale: 0.92 }}
+                disabled={refreshingIframe || cooldownSec > 0}
+                title={cooldownSec > 0 ? `再読み込みは${cooldownSec}秒後に可能になります` : "プレイヤーのURLを再取得してプレイヤーを再読み込み"}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-full text-xs font-semibold border border-gray-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-2xs"
+              >
+                {refreshingIframe ? (
+                  <Loader2 size={15} className="animate-spin text-blue-600" />
+                ) : (
+                  <RotateCw size={15} className={cooldownSec > 0 ? "opacity-50" : ""} />
+                )}
+
+              </motion.button>
+
+              {onOpenAddToPlaylist && (
+                <motion.button
+                  aria-label="再生リストに保存"
+                  title="再生リストに保存"
+                  onClick={() => onOpenAddToPlaylist(activeVideo)}
+                  whileTap={{ scale: 0.92 }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-full text-xs font-semibold border border-gray-200 transition-colors shadow-2xs"
+                >
+                  <Plus size={18} />
+                </motion.button>
+              )}
+
+              <motion.button
+                type="button"
+                onClick={() => {
+                  const muted = !isMutedRef.current;
+                  isMutedRef.current = muted; setIsMuted(muted);
+                  postPlayerCommand(muted ? 'mute' : 'unMute');
+                  if (!muted) triggerHud(<Volume2 size={22} />, '音声をオンにしました', '音が出ない場合は、動画の別の場所をタップしてください。', undefined, 3000);
+                  if (!muted && volumeRef.current === 0) {
+                    volumeRef.current = 100;
+                    postPlayerCommand('setVolume', [100]);
+                  }
+                }}
+                whileTap={{ scale: 0.92 }}
+                aria-label={isMuted ? 'ミュート解除' : 'ミュート'}
+                aria-pressed={isMuted}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-full text-xs font-semibold border border-gray-200 transition-colors shadow-2xs"
+              >
+                {isMuted ? <VolumeX size={15} /> : <Volume2 size={15} />}
+
+              </motion.button>
+              <button
+                type="button"
+                aria-label={captionsEnabled ? '字幕をオフにする' : '字幕をオンにする'}
+                aria-pressed={captionsEnabled}
+                title={captionsEnabled ? '字幕オン' : '字幕オフ'}
+                onClick={() => setCaptionsEnabled(value => !value)}
+                className={captionsEnabled ? "shrink-0 grid place-items-center rounded-full border p-2 bg-gray-900 text-white border-gray-900" : "shrink-0 grid place-items-center rounded-full border p-2 bg-gray-100 text-gray-800 border-gray-200"}
+              >
+                <Captions size={18} />
+              </button>
+
+              {/* キーボードショートカットヘルプ表示ボタン */}
+              <motion.button
+                aria-label="キーボードショートカット一覧"
+                onClick={() => setShowShortcutsModal(true)}
+                whileTap={{ scale: 0.92 }}
+                title="キーボードショートカット一覧 (?)"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-full text-xs font-semibold border border-gray-200 transition-colors shadow-2xs cursor-pointer"
+              >
+                <Keyboard size={15} />
+
+
+              </motion.button>
+
+
+            </div>
+          </div>
+
+          {(!isDescExpanded || mobileDescription) && <button type="button" className="video-description-preview desktop-description-preview" aria-expanded={isDescExpanded} aria-label="概要欄を開く" onClick={()=>setIsDescExpanded(true)}>
+            <span className="description-preview-stats">{formatNumberJP(activeVideo.viewCount)} 回視聴 · {activeVideo.publishedText}{isLive ? ' · ライブ' : ''}</span>
+            <span className="description-preview-text">{activeVideo.description || 'この動画の詳細を見る'}</span><strong>…もっと見る</strong>
+          </button>}
+          {isDescExpanded && mobileDescription && <VideoDescriptionSheet video={activeVideo} onClose={()=>setIsDescExpanded(false)} onSelectChannel={onSelectChannel} renderBody={renderTextWithMentionsAndLinks}/>}
+
+          {isDescExpanded && !mobileDescription && <section className="video-description-inline" aria-label="動画の概要"><strong>{formatNumberJP(activeVideo.viewCount)} 回視聴 · {activeVideo.publishedText}</strong><div className="whitespace-pre-wrap break-words mt-3">{renderTextWithMentionsAndLinks(activeVideo.description || '')}</div><button type="button" className="description-channel-inline" onClick={handleAuthorClick}>{activeVideo.author} · チャンネルを表示</button><button type="button" className="description-collapse" onClick={()=>setIsDescExpanded(false)}>一部を表示</button></section>}
+
+
+
+          {/* コメントセクション */}
+          <button className="mobile-comments-preview" onClick={() => setMobileCommentsOpen(true)} aria-label="コメントを開く">
+            <strong>コメント {comments.length > 0 ? comments.length : ''}</strong>
+            <span>{loadingComments ? '読み込み中…' : comments[0]?.text || 'コメントを表示'}</span>
+          </button>
+          {mobileCommentsOpen && <button className="mobile-comments-backdrop" aria-label="コメントを閉じる" onClick={() => setMobileCommentsOpen(false)} />}
+          <div ref={commentsSectionRef} aria-hidden={!commentsVisible} className={`video-comments-section mt-8 pt-6 border-t border-gray-200 ${mobileCommentsOpen ? 'mobile-comments-open' : ''}`}>
+            <button className="mobile-comments-close" onClick={() => setMobileCommentsOpen(false)} aria-label="コメントを閉じる">×</button>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+              <div className="flex items-center gap-2">
+                <MessageSquare size={22} className="text-gray-900" />
+                <h2 className="text-lg font-bold text-gray-900">
+                  コメント {comments.length > 0 ? `${comments.length}件` : ''}
+                </h2>
+              </div>
+
+              {/* コメント並び替えボタン (人気順・新しい順) */}
+              <div className="flex items-center gap-1.5 bg-gray-100 p-1 rounded-lg self-start sm:self-auto">
+                <button
+                  onClick={() => handleCommentSortChange('top')}
+                  className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${
+                    commentSort === 'top'
+                      ? 'bg-white text-gray-900 shadow-xs'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  人気順
+                </button>
+                <button
+                  onClick={() => handleCommentSortChange('newest')}
+                  className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${
+                    commentSort === 'newest'
+                      ? 'bg-white text-gray-900 shadow-xs'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  新しい順
+                </button>
+              </div>
+            </div>
+
+            {/* コメントフォーム */}
+            <form onSubmit={handleAddComment} className="flex gap-3 mb-8">
+              <Avatar src={commentProfile.avatar} name={commentProfile.name} className="w-10 h-10 text-sm border border-gray-300" />
+              <div className="flex-1 flex flex-col gap-2">
+                <input
+                  type="text"
+                  value={newComment}
+                  onChange={(e) => setNewComment(e.target.value)}
+                  placeholder={youtubeLinked?"YouTubeへコメントを投稿…":"Google連携後にコメントできます"}
+                  disabled={!youtubeLinked||youtubeActionBusy}
+                  maxLength={10000}
+                  className="w-full border-b border-gray-300 focus:border-gray-900 outline-none py-1.5 text-sm bg-transparent font-normal text-gray-900 placeholder-gray-500"
+                />
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setNewComment('')}
+                    className="px-4 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-100 rounded-full"
+                  >
+                    キャンセル
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={!youtubeLinked||youtubeActionBusy||!newComment.trim()}
+                    className="px-4 py-1.5 text-xs font-bold bg-blue-600 hover:bg-blue-500 disabled:bg-gray-200 disabled:text-gray-400 text-white rounded-full transition-colors flex items-center gap-1 shadow-xs"
+                  >
+                    <Send size={12} />
+                    <span>{youtubeActionBusy?'送信中…':'コメント'}</span>
+                  </button>
+                </div>
+              </div>
+            </form>
+            {youtubeActionError&&<p role="status" className="text-sm mb-4">{youtubeActionError}</p>}
+            {!youtubeLinked&&<p className="text-sm mb-4">YouTubeへの投稿にはマイページからGoogleアカウントを連携してください。</p>}
+
+            {commentsError&&<div role="alert" className="mb-4"><CompactError error={commentsError} onRetry={()=>comments.length?void loadMoreComments():void handleCommentSortChange(commentSort,true)}/></div>}
+            {/* コメント一覧 */}
+            {loadingComments ? (
+              <div className="flex items-center gap-2 py-6 text-gray-500 justify-center">
+                <Loader2 className="w-5 h-5 animate-spin" />
+                <span className="text-xs font-medium">コメントを読み込み中...</span>
+              </div>
+            ) : comments.length === 0 ? (
+              <p className="text-sm text-gray-500 py-4 text-center">{commentsError?'コメントを読み込めませんでした。':'まだコメントはありません。最初のコメントを投稿してみましょう！'}</p>
+            ) : (
+              <div className="flex flex-col gap-5">
+                {comments.map((comment) => (
+                  <CommentItem
+                    key={comment.id}
+                    comment={comment}
+                    onSelectChannel={onSelectChannel}
+                  />
+                ))}
+
+                {/* 自動無限スクロール監視要素 & ローディング表示 */}
+                <div ref={commentsEndRef} className="h-4" />
+                {loadingMoreComments && (
+                  <div className="flex items-center gap-2 py-4 text-gray-500 justify-center">
+                    <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
+                    <span className="text-xs font-medium">次のコメントを読み込み中...</span>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* 関連動画 & ライブチャット サイドバー */}
+      <div className="w-full md:w-[320px] lg:w-[380px] xl:w-[400px] shrink-0 flex flex-col gap-3">
+        {!isMini&&playlistQueue.length>0&&<PlaylistQueuePanel videos={playlistQueue} index={playlistQueueIndex} title={playlistTitle} open={playlistPanelOpen} shuffle={playlistShuffle} repeat={playlistRepeat} onToggle={()=>onPlaylistPanelToggle?.()} onSelect={index=>onQueueSelect?.(index)} onShuffle={()=>onPlaylistShuffle?.()} onRepeat={()=>onPlaylistRepeat?.()}/>}
+
+        {hasChat && (
+          <LiveChat videoId={videoId} getCurrentTime={() => currentTimeRef.current} isTimeAvailable={() => playerTimeReceivedRef.current} onSeek={(seconds) => { currentTimeRef.current = seconds; postPlayerCommand('seekTo', [seconds, true]); }} />
+        )}
+
+        {isRelatedOpen && (
+          <div className="flex flex-col gap-3">
+            {/* カテゴリフィルターチップ（ユーザー添付の画像スタイル） */}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar text-xs">
+              {[
+                { id: 'all', label: 'すべて' },
+                { id: 'author', label: `提供: ${activeVideo?.author || 'チャンネル'}` },
+                { id: 'related', label: '関連動画' },
+                { id: 'recommended', label: 'おすすめ' },
+                { id: 'recent', label: '最近アップロード' },
+              ].map((chip) => (
+                <button
+                  key={chip.id}
+                  onClick={() => setRelatedFilter(chip.id)}
+                  className={`px-3 py-1.5 rounded-lg font-medium whitespace-nowrap transition-colors text-xs ${
+                    relatedFilter === chip.id
+                      ? 'bg-gray-900 text-white font-bold'
+                      : 'bg-gray-100 hover:bg-gray-200 text-gray-800'
+                  }`}
+                >
+                  {chip.label}
+                </button>
+              ))}
+            </div>
+
+            <ShortsShelf context={{ source: 'related', videoId }} onSelect={(video) => onVideoSelect(video.videoId!, video)} />
+
+            {/* 関連動画リスト（履歴動画もしれっとブレンド） */}
+            {blendedRecommendations.filter(v => !v.isShort).map((recVideo, idx) => (
+              <div
+                key={`${recVideo.videoId}-${recVideo.playlistId || ''}-${idx}`}
+                className="flex gap-2.5 group cursor-pointer"
+                onClick={() => onVideoSelect(recVideo.videoId || '', recVideo)}
+              >
+                <div className="w-[160px] shrink-0 relative aspect-video rounded-lg overflow-hidden bg-gray-100 border border-gray-200">
+                  <img
+                    src={recVideo.videoThumbnails?.[0]?.url || (recVideo.videoId ? `https://i.ytimg.com/vi/${recVideo.videoId}/hqdefault.jpg` : 'https://images.unsplash.com/photo-1611162617474-5b21e879e113?q=80&w=320&auto=format&fit=crop')}
+                    alt={recVideo.title}
+                    className="object-cover w-full h-full group-hover:scale-105 transition-transform duration-300"
+                  />
+                  <div className="absolute bottom-1 right-1 bg-black/80 text-white text-[10px] px-1 rounded font-medium flex items-center gap-1">
+                    {recVideo.type === 'mix' || recVideo.type === 'playlist' ? (
+                      <ListMusic size={10} />
+                    ) : (
+                      formatDuration(recVideo.lengthSeconds)
+                    )}
+                  </div>
+                </div>
+                <div className="flex flex-col gap-0.5 overflow-hidden py-0.5 pr-1 flex-1">
+                  <h4 className="font-semibold text-gray-900 leading-snug line-clamp-2 text-xs group-hover:text-blue-600 transition-colors">
+                    {recVideo.title}
+                  </h4>
+                  <div className="flex flex-col text-[11px] text-gray-500 mt-1 font-normal">
+                    <span className="truncate hover:text-gray-900 font-medium text-gray-700">{recVideo.author || 'チャンネル'}</span>
+                    <div className="flex items-center gap-1">
+                      {recVideo.type === 'mix' || recVideo.type === 'playlist' ? (
+                        <span className="text-red-600 font-bold uppercase text-[9px] bg-red-50 px-1 rounded border border-red-100">
+                          {recVideo.type === 'mix' ? 'MIX' : 'PLAYLIST'}
+                        </span>
+                      ) : recVideo.viewCount > 0 ? (
+                        <span>{formatNumberJP(recVideo.viewCount)}回視聴</span>
+                      ) : null}
+                      {recVideo.publishedText && (
+                        <>
+                          {recVideo.viewCount > 0 && <span className="text-[8px] opacity-50">•</span>}
+                          <span>{recVideo.publishedText}</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+
+            {/* 関連動画自動無限スクロール監視要素 & ローディング表示 */}
+            <div ref={relatedEndRef} className="h-6" />
+            {loadingMoreRelated && (
+              <div className="flex items-center gap-2 py-4 text-gray-500 justify-center">
+                <Loader2 className="w-5 h-5 animate-spin text-red-600" />
+                <span className="text-xs font-medium">次の関連動画を読み込み中...</span>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Multi Channel Selection Modal */}
+      {showMultiChannelDialog && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-200 flex flex-col gap-4 relative max-h-[80vh]">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold text-gray-900">コラボレーター</h2>
+              <button
+                onClick={() => setShowMultiChannelDialog(false)}
+                className="p-1 hover:bg-gray-100 rounded-full transition-colors"
+              >
+                <X size={20} className="text-gray-600" />
+              </button>
+            </div>
+
+            <div className="overflow-y-auto pr-1 -mr-1 flex flex-col gap-3">
+              {multiChannelsLoading ? (
+                <div className="flex justify-center p-4">
+                  <div className="animate-spin h-6 w-6 border-2 border-gray-400 border-t-transparent rounded-full"></div>
+                </div>
+              ) : multiChannelsData.length > 0 ? (
+                multiChannelsData.map((channel, i) => {
+                  const isSub = subscriptions.some(s => s.id === channel.id || s.title === channel.title || s.id === channel.authorId || s.title === channel.name);
+                  const handleId = channel.authorId || channel.id || '';
+
+                  return (
+                    <div key={i} className="flex items-center gap-3 p-2 hover:bg-gray-50 rounded-xl transition-colors">
+                      <button
+                        onClick={() => {
+                          setShowMultiChannelDialog(false);
+                          onSelectChannel(handleId);
+                        }}
+                        className="shrink-0"
+                      >
+                        <Avatar
+                          src={channel.avatar || channel.authorAvatar || (channel.avatar?.[0]?.url)}
+                          name={channel.title || channel.author || channel.name}
+                          className="w-12 h-12 shadow-sm"
+                        />
+                      </button>
+                      <div className="flex flex-col overflow-hidden flex-1">
+                        <button
+                          onClick={() => {
+                            setShowMultiChannelDialog(false);
+                            onSelectChannel(handleId);
+                          }}
+                          className="flex items-center gap-1 text-left"
+                        >
+                          <span className="font-bold text-gray-900 text-[15px] truncate max-w-[160px]">
+                            {channel.title || channel.author || channel.name}
+                          </span>
+                          <span className="w-3.5 h-3.5 bg-gray-500 rounded-full flex items-center justify-center text-white text-[8px] font-bold shrink-0">✓</span>
+                        </button>
+                        <span className="text-xs text-gray-500 truncate">
+                          @{handleId.substring(0, 15)} • {channel.subCountText ? channel.subCountText : (channel.subCount ? `チャンネル登録者数 ${formatNumberJP(channel.subCount)}人` : '登録者数 非公開')}
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => onToggleSubscribe({
+                          id: handleId,
+                          title: channel.title || channel.author || channel.name,
+                          avatar: channel.avatar || channel.authorAvatar || (channel.avatar?.[0]?.url)
+                        })}
+                        className={`shrink-0 px-3 py-1.5 text-xs font-bold rounded-full transition-all duration-200 shadow-xs active:scale-95 flex items-center gap-1 ${
+                          isSub
+                            ? 'bg-gray-100 text-gray-800 hover:bg-gray-200'
+                            : 'bg-gray-900 text-white hover:bg-black'
+                        }`}
+                      >
+                        {isSub && <Bell size={12} />}
+                        <span>{isSub ? '登録済み' : 'チャンネル登録'}</span>
+                      </button>
+                    </div>
+                  );
+                })
+              ) : (
+                <p className="text-sm text-gray-500 text-center p-4">チャンネル情報を読み込めませんでした。</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* クリップボードコピー通知 (YouTube風Toast) */}
+      {copiedToast && (
+        <div className="fixed bottom-6 left-6 z-50 bg-[#0f0f0f] text-white px-4 py-2.5 rounded-lg text-xs font-medium shadow-xl flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2 duration-200">
+          <span>リンクをクリップボードにコピーしました</span>
+        </div>
+      )}
+
+      {/* キーボードショートカット一覧モーダル */}
+      <KeyboardShortcutsModal
+        isOpen={showShortcutsModal}
+        onClose={() => setShowShortcutsModal(false)}
+      />
+    </div>
+  );
+}

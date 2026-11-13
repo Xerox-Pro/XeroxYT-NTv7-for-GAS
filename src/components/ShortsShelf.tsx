@@ -1,0 +1,86 @@
+import {useYouTubeLinked} from '../lib/youtubeConnection';
+import {loadHomeSnapshot,saveHomeSnapshot} from '../lib/homeSnapshot.mjs';
+import {useSiteAccount} from './AccountGate';
+import {shuffleShelfCandidates} from '../lib/shortsShelfOrder.mjs';
+import VideoThumbnail from "./VideoThumbnail";
+import ShortsSkeleton from './ShortsSkeleton';
+import CompactError from './CompactError';
+import { rankCandidates } from '../lib/localRecommendations.mjs';
+import { loadShortsRanking } from '../lib/rankingClient.mjs';
+import { withShortsInterests } from '../lib/shortsInterests.mjs';
+import { useEffect, useState, useRef } from 'react';
+import { Link } from 'react-router-dom';
+import { Zap, ChevronRight, Loader2 } from 'lucide-react';
+import { Video } from '../types';
+import { excludeSeenShorts, mixShorts, createShortsSession, readSeenShorts, discoveryRequest, unseenRankingFirst, recordSeenShort } from '../lib/shortsFeed.mjs';
+import { fetchJSON, formatNumberJP } from '../utils';
+
+export type ShortsContext = { source: 'home' | 'search' | 'related' | 'channel'; q?: string; videoId?: string; channelId?: string };
+export function shortsQuery(context: ShortsContext) {
+  const params = new URLSearchParams({ source: context.source });
+  if (context.q) params.set('q', context.q.slice(0, 200));
+  if (context.channelId) params.set('channelId', context.channelId);
+  if (context.videoId) params.set('videoId', context.videoId);
+  return params;
+}
+export default function ShortsShelf({ context, onSelect, providedVideos, onVideosLoaded, offset=0 }: {
+  context: ShortsContext; onSelect: (video: Video, context: ShortsContext) => void; providedVideos?: Video[]; onVideosLoaded?: (videos:Video[])=>void; offset?:number;
+}) {
+  const personalized=useYouTubeLinked()&&!['search','channel'].includes(context.source);
+  const account=useSiteAccount();const snapshotScope=(account?.username||'guest')+(personalized?':youtube':'');
+  const report = useRef(onVideosLoaded); report.current = onVideosLoaded;
+  const shelf = useRef<HTMLDivElement>(null);
+  const [session] = useState(createShortsSession);
+  const [videos, setVideos] = useState<Video[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [attempt, setAttempt] = useState(0);
+  const query = shortsQuery(context).toString();
+  useEffect(() => {
+    if(providedVideos !== undefined){setVideos(providedVideos.slice(offset,offset+8));setLoading(false);setError('');return;}
+    let cancelled = false;
+    setLoading(true); setVideos([]); setError('');
+    const seen = readSeenShorts();
+    Promise.allSettled([fetchJSON(discoveryRequest(withShortsInterests(query), 1, session, context.source==='home'?[]:seen)), (context.source === 'search'||personalized) ? Promise.resolve({ videos: [] }) : loadShortsRanking()]).then(([native, ranked]) => {
+      if (native.status === 'rejected' && !(ranked.status==='fulfilled'&&ranked.value.videos?.length)) throw native.reason;
+      const currentSeen = readSeenShorts();
+      const fetched=(native.status==='fulfilled'?(native.value.videos||[]):[]).filter((v:Video)=>v.isShort);
+      const candidates=context.source==='home'?unseenRankingFirst(fetched,currentSeen):excludeSeenShorts(fetched,currentSeen);
+      const regular = (context.source === 'search'||personalized) ? candidates : rankCandidates(candidates, { short: true, seed: session, seen });
+      const ranking = ranked.status === 'fulfilled' ? rankCandidates(context.source==='home'?(ranked.value.videos||[]):excludeSeenShorts(ranked.value.videos || [], currentSeen), { short: true, seed: session, seen }) : [];
+      if (!cancelled) { let all=ranking.length ? mixShorts(regular, ranking) : regular;if(context.source==='home'&&!personalized){if(!all.length)all=loadHomeSnapshot('shorts:'+query,snapshotScope);let previous='';const key='xerox_short_shelf_order_'+query;try{previous=sessionStorage.getItem(key)||'';}catch{}all=shuffleShelfCandidates(all,previous);try{sessionStorage.setItem(key,all[0]?.videoId||'');}catch{}saveHomeSnapshot('shorts:'+query,all,snapshotScope);}setVideos(all.slice(offset,offset+8));report.current?.(all); }
+    }).catch(err => { if (!cancelled) {const saved=context.source==='home'&&!personalized?loadHomeSnapshot('shorts:'+query,snapshotScope):[];if(saved.length){const restored=shuffleShelfCandidates(saved,saved[0]?.videoId);setVideos(restored.slice(offset,offset+8));report.current?.(restored);setError('');}else setError(err.message || 'ショートを取得できませんでした');} })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [query, session, attempt, providedVideos, offset, snapshotScope]);
+  useEffect(() => {
+    if (!shelf.current) return;
+    const observer = new IntersectionObserver(entries => {
+      for (const entry of entries) if (entry.isIntersecting && entry.intersectionRatio >= 0.6) {
+        recordSeenShort((entry.target as HTMLElement).dataset.shortId!);
+        observer.unobserve(entry.target);
+      }
+    }, { threshold: 0.6 });
+    shelf.current.querySelectorAll('[data-short-id]').forEach(node => observer.observe(node));
+    return () => observer.disconnect();
+  }, [videos]);
+  if (!loading && !error && !videos.length) return null;
+  return <section className="shorts-shelf" aria-label="ショート動画のおすすめ">
+    <div className="flex items-center justify-between gap-3 mb-4">
+      <h2 className="flex items-center gap-2 text-lg font-bold"><Zap className="text-red-600 fill-red-600" size={22} />ショート</h2>
+      <Link to={`/shorts?${query}`} className="flex items-center text-xs font-semibold text-gray-600 hover:text-black">すべて見る<ChevronRight size={16} /></Link>
+    </div>
+    {loading ? <ShortsSkeleton/>
+      : error ? <CompactError error={error} onRetry={() => setAttempt(a => a + 1)}/>
+      : <div className="shorts-shelf-scroll" ref={shelf}>
+        {videos.map(video => <button key={video.videoId} data-short-id={video.videoId} className="shorts-cover text-left group" onClick={() => onSelect(video, context)}>
+          <div className="aspect-[9/16] overflow-hidden rounded-xl bg-gray-100 relative">
+            <VideoThumbnail preferMaxResolution videoId={video.videoId} fallback={video.videoThumbnails[0]?.url} sizes="220px" className="transition-transform group-hover:scale-105"/>
+            <span className="absolute bottom-2 left-2 text-[11px] bg-black/60 text-white rounded px-2 py-1">ショート</span>
+          </div>
+          <h3 className="font-semibold text-sm mt-2 line-clamp-2 leading-snug">{video.title}</h3>
+          {video.viewCountText || video.viewCount > 0 ? <p className="text-xs text-gray-500 mt-1">{video.viewCountText || `${formatNumberJP(video.viewCount)}回視聴`}</p> : null}
+        </button>)}
+      </div>}
+  </section>;
+}
