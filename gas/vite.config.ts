@@ -6,6 +6,7 @@ const root=process.cwd();
 export default defineConfig({
   plugins:[{name:'gas-compat',enforce:'pre',transform(code,id){
     if(id.endsWith('/src/components/AppSwitcher.tsx'))code=code.replace(/'\/(app-icons\/[^']+)'/g,"((window as any).__XEROX_GAS_ASSETS__.base+'/$1')");
+    if(id.endsWith('/src/index.css')||id.endsWith('/src/social/social.css'))code=code.replaceAll('100dvh','var(--gas-viewport-height, 100dvh)');
     if(id.endsWith('/src/MainApp.tsx'))code=code.replaceAll('window.location.search','location.search');
     if(id.endsWith('/src/components/LibraryPage.tsx'))code=code.replace('`${window.location.origin}/watch?list=${selectedPlaylist.id}`',"((window as any).__XEROX_GAS_SHARE__('/watch?list='+encodeURIComponent(selectedPlaylist.id)))");
     if(id.endsWith('/src/components/ShortsViewer.tsx'))code=code.replace('new URL(`/shorts/${video.videoId}`,window.location.origin).href',"((window as any).__XEROX_GAS_SHARE__('/shorts/'+video.videoId))");

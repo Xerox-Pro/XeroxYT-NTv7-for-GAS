@@ -1,3 +1,4 @@
+import {createRpcTransport} from './transport.mjs';
 const SESSION_KEY='xerox_gas_bridge_session_v1';
 export function sessionToken(storage=localStorage,random=crypto){
  let token=storage.getItem(SESSION_KEY);
@@ -17,9 +18,7 @@ export function rpcRequest(request,signal,run=globalThis.google?.script?.run){
 }
 export function installBridge(){
  const nativeFetch=window.fetch.bind(window),token=sessionToken();
- let running=0;const pending=[];
- const drain=()=>{while(running<4&&pending.length){const {work,resolve,reject}=pending.shift();running++;work().then(resolve,reject).finally(()=>{running--;drain();});}};
- const limited=work=>new Promise((resolve,reject)=>{if(pending.length>=40){reject(new Error('通信が集中しています。少し待ってください。'));return;}pending.push({work,resolve,reject});drain();});
+ const dispatch=createRpcTransport(request=>rpcRequest(request));
  window.fetch=async(input,options={})=>{
   const raw=input instanceof Request?input.url:String(input);
   const url=new URL(raw,location.href);
@@ -32,7 +31,7 @@ export function installBridge(){
   if(body===undefined&&!['GET','HEAD'].includes(method))body=await request.text();
   if(body!=null&&typeof body!=='string')throw new Error('GAS版ではJSON形式で送信してください。');
   if(!['GET','HEAD'].includes(method)){if(!headers['content-type'])headers['content-type']='application/json';if(!body)body='{}';}
-  const result=await limited(()=>rpcRequest({session:token,path:url.pathname+url.search,method,headers,body:body??null},signal));
+  const result=await dispatch({session:token,path:url.pathname+url.search,method,headers,body:body??null},signal);
   if(!result||!Number.isInteger(result.status))throw new Error('GASからの応答が不正です。');
   return new Response([204,205,304].includes(result.status)?null:result.body,{status:result.status,headers:result.headers});
  };

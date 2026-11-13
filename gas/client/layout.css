@@ -1,0 +1,11 @@
+html,body,#root{width:100%;min-width:0;margin:0;}
+html,body{min-height:var(--gas-viewport-height,100dvh);}
+.min-h-screen{min-height:var(--gas-viewport-height,100dvh);}
+.shorts-viewer{min-height:0;}
+@media(max-width:767px){
+ .shorts-viewer{height:calc(var(--gas-viewport-height,100dvh) - 56px - 65px - env(safe-area-inset-bottom));}
+ .my-page,.my-section{min-width:0;max-width:100%;}
+}
+@media(max-height:520px) and (min-width:768px){
+ .shorts-player-row{max-height:calc(var(--gas-viewport-height,100dvh) - 90px);}
+}
