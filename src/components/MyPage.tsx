@@ -2,6 +2,7 @@ import {useYouTubeLinked} from '../lib/youtubeConnection';
 import VideoThumbnail from "./VideoThumbnail";
 import RecommendationDebug from "./RecommendationDebug";
 import TransportSettings from "./TransportSettings";
+import LocalDataPanel from "./LocalDataPanel";
 import {
   useEffect,
   useRef,
@@ -88,6 +89,7 @@ export default function MyPage(props: Props) {
         </button>
       </section>
       {props.youtubeConnection}
+      <LocalDataPanel />
       <div className="my-account-actions">
         <button type="button" onClick={() => setDebugOpen(true)}>おすすめ分析（デバッグ）</button>
         <button onClick={() => void account?.logout()}>
