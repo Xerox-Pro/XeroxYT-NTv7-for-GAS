@@ -17,6 +17,7 @@ npm ci --ignore-scripts
 npm test
 npm run lint
 npm run build
+npm run test:gas:bundle
 ```
 
 mainへの更新時、GitHub ActionsがGAS版をビルドし、gas-runtimeへJS・CSSを配信します。同じGAS公開URLから最新版を読み込みます。GAS側ではASSET_REPOを `Xerox-Pro/XeroxYT-NTv7-for-GAS` に設定してください。Forkした場合は自分のリポジトリ名を指定します。

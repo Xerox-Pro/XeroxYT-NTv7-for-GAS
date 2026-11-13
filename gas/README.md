@@ -64,9 +64,10 @@ GASのキャッシュは保証されたセッションDBではありません。
 npm ci --ignore-scripts
 npm run test:gas
 npm run build:gas
+npm run test:gas:bundle
 ```
 
-生成先は `gas/web/`。通常のVercel向け `npm run build` は変わりません。
+生成先は `gas/web/`。この独立リポジトリでは `npm run build` もGAS向けビルドです。Vercel版は別リポジトリで更新します。
 `release.json` の `revision` には**ビルド済みファイルが存在するコミットSHA**を設定してから公開します。自動ワークフローはアセットのコミットと、そのSHAを指すリリース情報のコミットを順に作ります。
 
 ## 検証範囲

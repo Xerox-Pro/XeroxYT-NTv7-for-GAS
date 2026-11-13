@@ -30,7 +30,7 @@ test('site cookies stay server-side and are isolated per browser session',()=>{
  h.reply({status:200,headers:{'Content-Type':'application/json','Set-Cookie':'__Host-xy_session=; Max-Age=0'},body:{ok:true}});h.request('/api/account/logout','a'.repeat(64),{method:'POST',headers:{'content-type':'application/json'},body:'{}'});assert.equal(h.cache.size,0);
 });
 test('redacts upstream URLs, encoded hosts, nested data, keys and secrets',()=>{
- const h=harness();h.reply({status:200,headers:{'Content-Type':'application/json','x-daily-usage-token':'https://private.example.com'},body:{url:'https://private.example.com/a',nested:[{error:'account.example.com top-secret-value'}],encoded:encodeURIComponent('https://private.example.com'), 'https://private.example.com':'private.example.com'}});
+ const h=harness();h.reply({status:200,headers:{'Content-Type':'application/json','x-daily-usage-token':'https://private.example.com top-secret-value'},body:{url:'https://private.example.com/a',nested:[{error:'account.example.com top-secret-value'}],encoded:encodeURIComponent('https://private.example.com'), 'https://private.example.com':'private.example.com'}});
  const data=JSON.stringify(h.request());for(const hidden of ['private.example.com','account.example.com','top-secret-value'])assert.equal(data.includes(hidden),false);
 });
 test('blocks non-JSON streams, redirects, oversized payloads and exception URL leakage',()=>{

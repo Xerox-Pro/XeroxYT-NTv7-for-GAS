@@ -8,6 +8,7 @@
     "build:gas": "node scripts/build-gas.mjs",
     "test": "node --test tests/gas-*.test.mjs",
     "test:gas": "node --test tests/gas-*.test.mjs",
+    "test:gas:bundle": "node scripts/check-gas-bundle.mjs",
     "lint": "tsc --noEmit"
   },
   "dependencies": {

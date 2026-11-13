@@ -2,7 +2,7 @@ name: Publish GAS assets
 on:
   push:
     branches: [main]
-    paths: ['src/**', 'public/app-icons/**', 'gas/client/**', 'gas/vite.config.ts', 'scripts/build-gas.mjs', 'package*.json', '.github/workflows/gas-assets.yml']
+    paths: ['src/**', 'public/app-icons/**', 'gas/client/**', 'gas/vite.config.ts', 'scripts/**', 'tests/gas-*.test.mjs', '*.mjs', 'tsconfig.json', 'package*.json', '.github/workflows/gas-assets.yml']
   workflow_dispatch:
 permissions:
   contents: write
@@ -22,6 +22,7 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - run: npm test && npm run lint && npm run build
+      - run: npm run test:gas:bundle
       - name: Publish immutable assets, then release pointer
         shell: bash
         run: |
