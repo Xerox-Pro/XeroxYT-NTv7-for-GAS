@@ -45,13 +45,47 @@ function gasRoute_(path) {
 function gasHeader_(headers,name) {
   var key=Object.keys(headers||{}).find(function(k){return k.toLowerCase()===name;});return key?headers[key]:null;
 }
-// Only the app's site-session cookie is bridged. Never store Google/IG/TikTok cookies in GAS.
+// Server-only session persistence. Cache eviction must not log users out.
+function gasForgetCookie_(key) {
+  PropertiesService.getScriptProperties().deleteProperty(key);
+  CacheService.getScriptCache().remove(key);
+}
+function gasStoreCookie_(key,cookie,expires) {
+  var value=JSON.stringify({cookie:cookie,expires:expires});
+  PropertiesService.getScriptProperties().setProperty(key,value);
+  CacheService.getScriptCache().put(key,value,Math.max(1,Math.min(21600,Math.floor((expires-Date.now())/1000))));
+}
+function gasLoadCookie_(key) {
+  var cache=CacheService.getScriptCache(),props=PropertiesService.getScriptProperties();
+  var value=cache.get(key)||props.getProperty(key);
+  if(!value)return null;
+  // Migrate sessions created by the old cache-only implementation once.
+  if(/^__Host-xy_session=[a-f0-9]{64}$/.test(value)){
+    gasStoreCookie_(key,value,Date.now()+21600000);return value;
+  }
+  var saved;try{saved=JSON.parse(value);}catch(_){gasForgetCookie_(key);return null;}
+  if(!saved||!/^__Host-xy_session=[a-f0-9]{64}$/.test(saved.cookie||'')||!Number.isFinite(saved.expires)||saved.expires<=Date.now()){
+    gasForgetCookie_(key);return null;
+  }
+  cache.put(key,value,Math.max(1,Math.min(21600,Math.floor((saved.expires-Date.now())/1000))));
+  return saved.cookie;
+}
 function gasSaveCookie_(key,responseHeaders) {
   var values=gasHeader_(responseHeaders,'set-cookie');
   if(!values)return;
   (Array.isArray(values)?values:[String(values)]).forEach(function(line){
     var match=/(?:^|,\s*)__Host-xy_session=([a-f0-9]{64}|)(?:;|$)/.exec(line);
-    if(match){if(match[1])CacheService.getScriptCache().put(key,'__Host-xy_session='+match[1],21600);else CacheService.getScriptCache().remove(key);}
+    if(!match)return;
+    var age=/(?:^|;)\s*Max-Age=(-?\d+)/i.exec(line);
+    var date=/(?:^|;)\s*Expires=([^;]+)/i.exec(line);
+    var expires=age?Date.now()+Number(age[1])*1000:date?Date.parse(date[1]):Date.now()+21600000;
+    if(!match[1]||!Number.isFinite(expires)||expires<=Date.now()){gasForgetCookie_(key);return;}
+    // Remove expired records only, leaving API configuration and active sessions intact.
+    var props=PropertiesService.getScriptProperties(),all=props.getProperties();
+    Object.keys(all).filter(function(name){return /^xyg:[a-f0-9]{64}$/.test(name);}).forEach(function(name){
+      try{var record=JSON.parse(all[name]);if(record.expires<=Date.now())gasForgetCookie_(name);}catch(_){}
+    });
+    gasStoreCookie_(key,'__Host-xy_session='+match[1],expires);
   });
 }
 function gasSanitize_(value,hidden) {
@@ -80,9 +114,9 @@ function gasRequest(request) {
     var key='xyg:'+gasHash_(request.session+target);
     var headers={'Accept':'application/json','Origin':origin};
     ['content-type','accept-language','x-client-id','x-usage-token','x-client-usage'].forEach(function(name){var v=gasHeader_(request.headers,name);if(typeof v==='string'&&v.length<2048&&!/[\r\n]/.test(v))headers[name]=v;});
-    var cookie=CacheService.getScriptCache().get(key);if(cookie)headers.Cookie=cookie;
+    var cookie=gasLoadCookie_(key);if(cookie)headers.Cookie=cookie;
     // The account cookie must also reach auth/user/social routes when origins differ.
-    if(target!==account){var accountCookie=CacheService.getScriptCache().get('xyg:'+gasHash_(request.session+account));if(accountCookie)headers.Cookie=accountCookie;}
+    if(target!==account){var accountCookie=gasLoadCookie_('xyg:'+gasHash_(request.session+account));if(accountCookie)headers.Cookie=accountCookie;}
     var secret=props.getProperty('API_SHARED_SECRET');if(secret)headers.Authorization='Bearer '+secret;
     if(!['GET','HEAD'].includes(method)&&!/^application\/json(?:;|$)/i.test(headers['content-type']||''))return gasResult_(415,{error:'JSON形式で送信してください。'});
     var options={method:method.toLowerCase(),headers:headers,muteHttpExceptions:true,followRedirects:false,validateHttpsCertificates:true};
@@ -93,6 +127,7 @@ function gasRequest(request) {
     var responseHeaders=response.getAllHeaders();
     // Login/session cookie changes are processed before the next RPC can use them.
     if(/^\/api\/account\/(?:login|register|logout)(?:\?|$)/.test(request.path)&&status>=200&&status<300)gasSaveCookie_(key,responseHeaders);
+    if(status===401&&/^\/api\/account\/session(?:\?|$)/.test(request.path))gasForgetCookie_(key);
     if(method==='HEAD'||status===204)return gasResult_(status,{});
     if(!/application\/(?:json|[^;]+\+json)/i.test(String(gasHeader_(responseHeaders,'content-type')||'')))return gasResult_(502,{error:'GAS版ではJSON以外の動画・バイナリ中継に対応していません。',code:'GAS_STREAM_UNSUPPORTED'});
     var text=response.getContentText();

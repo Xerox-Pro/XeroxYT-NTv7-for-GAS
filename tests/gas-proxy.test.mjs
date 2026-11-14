@@ -6,10 +6,10 @@ import {createHash} from 'node:crypto';
 const source=readFileSync(new URL('../gas/Code.gs',import.meta.url),'utf8');
 function harness(){
  const settings={API_BASE_URL:'https://private.example.com',ACCOUNT_BASE_URL:'https://account.example.com',UPSTREAM_ORIGIN:'https://front.example.com',API_SHARED_SECRET:'top-secret-value'};
- const cache=new Map(),calls=[];let reply={status:200,headers:{'Content-Type':'application/json'},body:{ok:true}};
- const sandbox={PropertiesService:{getScriptProperties:()=>({getProperty:k=>settings[k]})},CacheService:{getScriptCache:()=>({get:k=>cache.get(k)||null,put:(k,v)=>cache.set(k,v),remove:k=>cache.delete(k)})},Utilities:{DigestAlgorithm:{SHA_256:'sha256'},computeDigest:(_,v)=>[...createHash('sha256').update(v).digest()]},UrlFetchApp:{fetch:(url,opts)=>{calls.push({url,...opts});if(reply.throw)throw new Error('https://private.example.com/secret');return {getResponseCode:()=>reply.status,getAllHeaders:()=>reply.headers,getContentText:()=>typeof reply.body==='string'?reply.body:JSON.stringify(reply.body)};}}};
+ const cache=new Map(),persistent=new Map(),calls=[];let reply={status:200,headers:{'Content-Type':'application/json'},body:{ok:true}};
+ const sandbox={PropertiesService:{getScriptProperties:()=>({getProperty:k=>persistent.has(k)?persistent.get(k):settings[k],setProperty:(k,v)=>persistent.set(k,v),deleteProperty:k=>persistent.delete(k),getProperties:()=>Object.assign({},settings,Object.fromEntries(persistent))})},CacheService:{getScriptCache:()=>({get:k=>cache.get(k)||null,put:(k,v)=>cache.set(k,v),remove:k=>cache.delete(k)})},Utilities:{DigestAlgorithm:{SHA_256:'sha256'},computeDigest:(_,v)=>[...createHash('sha256').update(v).digest()]},UrlFetchApp:{fetch:(url,opts)=>{calls.push({url,...opts});if(reply.throw)throw new Error('https://private.example.com/secret');return {getResponseCode:()=>reply.status,getAllHeaders:()=>reply.headers,getContentText:()=>typeof reply.body==='string'?reply.body:JSON.stringify(reply.body)};}}};
  vm.createContext(sandbox);vm.runInContext(source,sandbox);
- return {sandbox,calls,cache,settings,reply:r=>{reply=r;},request:(path='/api/search?q=hello',session='a'.repeat(64),extra={})=>sandbox.gasRequest({path,session,method:'GET',headers:{},...extra})};
+ return {sandbox,calls,cache,persistent,settings,reply:r=>{reply=r;},request:(path='/api/search?q=hello',session='a'.repeat(64),extra={})=>sandbox.gasRequest({path,session,method:'GET',headers:{},...extra})};
 }
 test('strict paths reject traversal, cross-origin and privileged calls',()=>{
  const h=harness();for(const path of ['https://evil.example/api/search','//evil.example/api/search','/api/../internal','/api/%2e%2e/internal','/api/%252e%252e/internal','/api/search%0d%0aHost:evil','/api/transport-config','/api/account/cloudflare-session','/api/debug/search','/api/search#bad'])assert.equal(h.request(path).status,400,path);
@@ -27,7 +27,7 @@ test('site cookies stay server-side and are isolated per browser session',()=>{
  h.request('/api/account/session');assert.equal(h.calls.at(-1).headers.Cookie,'__Host-xy_session='+cookie);
  h.request('/api/user/feed/home');assert.equal(h.calls.at(-1).headers.Cookie,'__Host-xy_session='+cookie);
  h.request('/api/user/feed/home','b'.repeat(64));assert.equal(h.calls.at(-1).headers.Cookie,undefined);
- h.reply({status:200,headers:{'Content-Type':'application/json','Set-Cookie':'__Host-xy_session=; Max-Age=0'},body:{ok:true}});h.request('/api/account/logout','a'.repeat(64),{method:'POST',headers:{'content-type':'application/json'},body:'{}'});assert.equal(h.cache.size,0);
+ h.reply({status:200,headers:{'Content-Type':'application/json','Set-Cookie':'__Host-xy_session=; Max-Age=0'},body:{ok:true}});h.request('/api/account/logout','a'.repeat(64),{method:'POST',headers:{'content-type':'application/json'},body:'{}'});assert.equal(h.cache.size,0);assert.equal(h.persistent.size,0);
 });
 test('redacts upstream URLs, encoded hosts, nested data, keys and secrets',()=>{
  const h=harness();h.reply({status:200,headers:{'Content-Type':'application/json','x-daily-usage-token':'https://private.example.com top-secret-value'},body:{url:'https://private.example.com/a',nested:[{error:'account.example.com top-secret-value'}],encoded:encodeURIComponent('https://private.example.com'), 'https://private.example.com':'private.example.com'}});
@@ -51,4 +51,18 @@ test('HTML loads both released stylesheet and script without API configuration',
  assert.match(html,/stylesheet\.href=window\.__XEROX_GAS_ASSETS__\.css/);
  assert.match(html,/app\.src=window\.__XEROX_GAS_ASSETS__\.js/);
  assert.equal(/API_BASE_URL|API_SHARED_SECRET/.test(html),false);
+});
+
+test('persistent session survives cache eviction and a fresh GAS execution, while logout removes it',()=>{
+ const h=harness(),token='e'.repeat(64);
+ h.reply({status:200,headers:{'Content-Type':'application/json','Set-Cookie':'__Host-xy_session='+token+'; Max-Age=2592000; Path=/; Secure; HttpOnly'},body:{ok:true}});
+ h.request('/api/account/login','a'.repeat(64),{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
+ assert.equal(h.persistent.size,1);
+ h.cache.clear();vm.runInContext(source,h.sandbox);
+ h.reply({status:200,headers:{'Content-Type':'application/json'},body:{ok:true}});
+ h.request('/api/account/session');assert.equal(h.calls.at(-1).headers.Cookie,'__Host-xy_session='+token);
+ const key=[...h.persistent.keys()][0],saved=JSON.parse(h.persistent.get(key));
+ assert.ok(saved.expires>Date.now()+21600000);
+ h.cache.clear();saved.expires=Date.now()-1;h.persistent.set(key,JSON.stringify(saved));
+ h.request('/api/account/session');assert.equal(h.calls.at(-1).headers.Cookie,undefined);assert.equal(h.persistent.size,0);
 });

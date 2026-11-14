@@ -112,7 +112,7 @@ Worker URLを普通にブラウザで開くと403になることがあります�
 | --- | --- |
 | APIが403 | API_SHARED_SECRETの一致、UPSTREAM_ORIGINとALLOWED_ORIGINSの一致 |
 | 502 / テーブルがない | D1のID・DB binding・schema.sql適用。Cloudflare側のログ |
-| ログインが数時間で切れる | GASのセッションキャッシュは最大6時間。早期削除もあり |
+| ログインが数時間で切れる | 最新Code.gsへ更新。セッションは永続保存し、APIの有効期限まで保持（現在30日） |
 | JS/CSSが読めない | 自分のgas-runtimeブランチとrelease.json、Actionsの実行結果 |
 | Workers 1102 | API解析処理がCPU制限に到達。GASへの移植だけでは解消しない |
 | SNSの公開検索・動画が取得不可 | 外部サービスのログイン要求・回数制限・仕様変更。API自前化だけで必ず取得できるわけではない |
