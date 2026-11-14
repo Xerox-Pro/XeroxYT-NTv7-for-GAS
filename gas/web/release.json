@@ -2,6 +2,7 @@
   "version": 1,
   "entry": "app-DcNNgNvJ.js",
   "css": "style-CDziwPjb.css",
-  "source": "714c924198cc7ad6dca433074586b37104f53c06",
-  "revision": "038a590edc2445b07678f69e1070dcacf2bb95f1"
+  "server": "server-runtime.json",
+  "serverHash": "0f48958168ec886751158aa1d76ddc6cf8076411849cdf5508afa71ccc8acc58",
+  "source": "30201894d42ccd753e5680a466af27ba22c92086"
 }
