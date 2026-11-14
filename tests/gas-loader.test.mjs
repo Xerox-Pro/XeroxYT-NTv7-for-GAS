@@ -37,10 +37,10 @@ test('never retries a runtime request after execution has begun and only accepts
 
 test('published real runtime executes with GAS services and the bundled HTML template',()=>{
  const h=harness();h.actual();let template;
- h.s.HtmlService.createTemplate=html=>{template={html,evaluate(){return this;},setTitle(){return this;},setFaviconUrl(){return this;},addMetaTag(){return this;}};return template;};
+ h.s.HtmlService.createHtmlOutput=html=>{template={html,setTitle(){return this;},setFaviconUrl(){throw new Error('Unsupported icon');},addMetaTag(){return this;}};return template;};
  h.s.ScriptApp={getService:()=>({getUrl:()=> 'https://script.google.com/macros/s/fixed/exec'})};
  const result=h.s.doGet({parameter:{route:'/shorts/test'}});
- assert.equal(result,template);assert.ok(template.html.includes('assetConfig'));
- const config=JSON.parse(template.assetConfig);assert.equal(config.route,'/shorts/test');assert.ok(config.base.includes('@'+'1'.repeat(40)));
+ assert.equal(result,template);assert.ok(!template.html.includes('<?!= assetConfig ?>'));
+ const config=JSON.parse(template.html.split('window.__XEROX_GAS_ASSETS__=')[1].split(';\n')[0]);assert.equal(config.route,'/shorts/test');assert.ok(config.base.includes('@'+'1'.repeat(40)));
  assert.equal(h.s.gasRequest({session:'bad',path:'/api/search'}).status,400);
 });

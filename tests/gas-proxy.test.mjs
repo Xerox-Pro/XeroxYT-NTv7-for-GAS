@@ -40,11 +40,12 @@ test('blocks non-JSON streams, redirects, oversized payloads and exception URL l
 });
 test('loader follows latest manifest while pinning JS and CSS to one immutable revision',()=>{
  const h=harness();let current;
- h.sandbox.HtmlService={createTemplate:()=>{current={evaluate(){return this;},setTitle(){return this;},setFaviconUrl(url){this.favicon=url;return this;},addMetaTag(){return this;}};return current;},createHtmlOutput:()=>({setTitle(){return this;}})};
+ h.sandbox.HtmlService={createHtmlOutput:html=>{current={html,setTitle(){return this;},setFaviconUrl(url){this.favicon=url;return this;},addMetaTag(){return this;}};return current;}};
+ const config=()=>JSON.parse(current.html.split('window.__XEROX_GAS_ASSETS__=')[1].split(';\n')[0]);
  h.sandbox.ScriptApp={getService:()=>({getUrl:()=> 'https://script.google.com/macros/s/stable/exec'})};
  const release=revision=>({status:200,headers:{},body:{revision,entry:'app-hash.js',css:'style-hash.css'}});
- h.sandbox.GAS_INDEX_HTML_='<html></html>';h.sandbox.GAS_RELEASE_={repo:'Xerox-Pro/XeroxYT-NTv7-for-GAS',release:release('1'.repeat(40)).body};h.sandbox.doGet({parameter:{route:'/watch?v=test'}});const first=JSON.parse(current.assetConfig);assert.ok(first.js.includes('@'+'1'.repeat(40)));assert.equal(first.js.split('/gas/web/')[0],first.css.split('/gas/web/')[0]);assert.equal(first.route,'/watch?v=test');assert.equal(current.favicon,first.base+'/app-icons/youtube.jpeg');
- h.sandbox.GAS_RELEASE_.release=release('2'.repeat(40)).body;h.sandbox.doGet({parameter:{}});const second=JSON.parse(current.assetConfig);assert.ok(second.js.includes('@'+'2'.repeat(40)));assert.equal(first.webAppUrl,second.webAppUrl);assert.equal(JSON.stringify(second).includes('private.example.com'),false);
+ h.sandbox.GAS_INDEX_HTML_=readFileSync(new URL('../gas/Index.html',import.meta.url),'utf8');h.sandbox.GAS_RELEASE_={repo:'Xerox-Pro/XeroxYT-NTv7-for-GAS',release:release('1'.repeat(40)).body};h.sandbox.doGet({parameter:{route:'/watch?v=test'}});const first=config();assert.ok(first.js.includes('@'+'1'.repeat(40)));assert.equal(first.js.split('/gas/web/')[0],first.css.split('/gas/web/')[0]);assert.equal(first.route,'/watch?v=test');assert.equal(current.favicon,first.base+'/app-icons/favicon.png');
+ h.sandbox.GAS_RELEASE_.release=release('2'.repeat(40)).body;h.sandbox.doGet({parameter:{}});const second=config();assert.ok(second.js.includes('@'+'2'.repeat(40)));assert.equal(first.webAppUrl,second.webAppUrl);assert.equal(JSON.stringify(second).includes('private.example.com'),false);
 });
 test('HTML loads both released stylesheet and script without API configuration',()=>{
  const html=readFileSync(new URL('../gas/Index.html',import.meta.url),'utf8');

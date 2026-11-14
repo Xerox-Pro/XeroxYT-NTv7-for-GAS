@@ -19,7 +19,7 @@ function gasFetchText_(url) {
 }
 function gasCompile_(bundle,context) {
   if(!bundle||bundle.version!==1||typeof bundle.source!=='string'||typeof bundle.html!=='string')throw new Error('Invalid runtime');
-  var runtime=new Function('GAS_INDEX_HTML_','GAS_RELEASE_',bundle.source+'\nreturn {doGet:doGet,gasRequest:gasRequest};')(bundle.html,context);
+  var runtime=new Function('GAS_INDEX_HTML_','GAS_RELEASE_','HtmlService','PropertiesService','CacheService','Utilities','UrlFetchApp','ScriptApp',bundle.source+'\nreturn {doGet:doGet,gasRequest:gasRequest};')(bundle.html,context,HtmlService,PropertiesService,CacheService,Utilities,UrlFetchApp,typeof ScriptApp==='undefined'?null:ScriptApp);
   if(typeof runtime.doGet!=='function'||typeof runtime.gasRequest!=='function')throw new Error('Invalid entrypoints');
   return runtime;
 }

@@ -6,15 +6,23 @@
  * Never put these API values into Index.html or a VITE_* variable.
  */
 function doGet(e) {
+  var stage='CONFIG';
   try {
-    var release = GAS_RELEASE_.release;
-    var repo = GAS_RELEASE_.repo;
-    var base = 'https://cdn.jsdelivr.net/gh/' + repo + '@' + release.revision + '/gas/web';
-    var template = HtmlService.createTemplate(GAS_INDEX_HTML_);
-    template.assetConfig = JSON.stringify({base:base,js:base+'/'+release.entry,css:base+'/'+release.css,webAppUrl:ScriptApp.getService().getUrl(),route:e&&e.parameter&&/^\/(?!\/)/.test(e.parameter.route||'')?e.parameter.route:null}).replace(/</g,'\\u003c');
-    return template.evaluate().setTitle('XeroxYT-NTv7 for GAS').setFaviconUrl(base+'/app-icons/youtube.jpeg').addMetaTag('viewport','width=device-width, initial-scale=1');
+    var release=GAS_RELEASE_.release,repo=GAS_RELEASE_.repo;
+    var base='https://cdn.jsdelivr.net/gh/'+repo+'@'+release.revision+'/gas/web';
+    var config=JSON.stringify({base:base,js:base+'/'+release.entry,css:base+'/'+release.css,webAppUrl:ScriptApp.getService().getUrl(),route:e&&e.parameter&&/^\/(?!\/)/.test(e.parameter.route||'')?e.parameter.route:null}).replace(/</g,'\\u003c');
+    stage='HTML';
+    // Remote HTML is static; replace its one JSON placeholder without a second
+    // Apps Script template evaluation inside a dynamically loaded function.
+    var marker='<?!= assetConfig ?>';
+    if(GAS_INDEX_HTML_.split(marker).length!==2)throw new Error('Invalid HTML placeholder');
+    var html=GAS_INDEX_HTML_.replace(marker,function(){return config;});
+    var output=HtmlService.createHtmlOutput(html).setTitle('XeroxYT-NTv7 for GAS').addMetaTag('viewport','width=device-width, initial-scale=1');
+    // Icon failure must not prevent the application from opening.
+    try{output.setFaviconUrl(base+'/app-icons/favicon.png');}catch(_){}
+    return output;
   } catch (_) {
-    return HtmlService.createHtmlOutput('<!doctype html><html lang="ja"><body><h1>画面を読み込めませんでした</h1><p>GitHubのGASリリースとスクリプトプロパティを確認して再読み込みしてください。</p></body></html>').setTitle('XeroxYT-NTv7 for GAS');
+    return HtmlService.createHtmlOutput('<!doctype html><html lang="ja"><body><h1>画面を読み込めませんでした</h1><p>GAS_RENDER_'+stage+'：更新後に再読み込みしてください。</p></body></html>').setTitle('XeroxYT-NTv7 for GAS');
   }
 }
 function gasResult_(status, data, headers) {
