@@ -6,7 +6,8 @@ export function installViewport(){
  const update=()=>{
   scheduled=false;
   const viewport=window.visualViewport;
-  const height=viewport&&viewport.scale===1?viewport.height:window.innerHeight;
+  const zoom=window.__XEROX_GAS_VIEWPORT_WIDTH__?window.innerWidth/window.__XEROX_GAS_VIEWPORT_WIDTH__:1;
+  const height=(viewport&&viewport.scale===1?viewport.height:window.innerHeight)/zoom;
   if(height>0)document.documentElement.style.setProperty('--gas-viewport-height',height+'px');
  };
  const schedule=()=>{if(!scheduled){scheduled=true;requestAnimationFrame(update);}};

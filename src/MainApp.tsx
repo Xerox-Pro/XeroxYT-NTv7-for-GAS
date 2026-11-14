@@ -122,7 +122,7 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
   const [isSidebarOpen, setIsSidebarOpen] = useState(
     window.innerWidth >= 1280
   );
-  const [isMobile, setIsMobile] = useState(window.innerWidth < 768 && !window.matchMedia('(orientation: landscape)').matches);
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
 
   const searchContinuation=useRef({key:'',next:''});
   const recommendationRequestIdRef = useRef(0);
@@ -231,7 +231,7 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
     const handleResize = () => {
       const width = window.innerWidth;
       const isLandscape = window.matchMedia('(orientation: landscape)').matches;
-      const mobile = width < 768 && !isLandscape;
+      const mobile = width < 768;
       setIsMobile(mobile);
       if (view === 'home') {
         if (width >= 1280) {
@@ -250,6 +250,9 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
   // 無限スクロール用ページ制御
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
+  const [moreError,setMoreError]=useState('');
+  const loadMoreMarker=useRef<HTMLDivElement>(null);
+  const homeSeed=useRef(Date.now().toString());
   const isFetchingMore = useRef(false);
 
   // モーダル
@@ -640,6 +643,8 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
   const fetchRecommendations = async (pageNum: number = 1, append: boolean = false) => {
     if(!googleStatusReady)return;
     const currentReqId = ++recommendationRequestIdRef.current;
+    setMoreError('');
+    if(pageNum===1)homeSeed.current=Date.now().toString();
     if (append) {
       setLoadingMore(true);
     } else {
@@ -660,7 +665,7 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
         historyIds,
         userHashtags,
         page: pageNum.toString(),
-        refreshNonce: Date.now().toString(),
+        refreshNonce: homeSeed.current,
       });
       if(pageNum===1)personalHomeCursor.current='';
       const result = userInfo?await fetchJSON('/api/user/feed/home?continuation='+encodeURIComponent(personalHomeCursor.current),{signal:inactiveRequests.current.signal}):await fetchJSON(`/api/recommendations?${queryParams.toString()}`,{signal:inactiveRequests.current.signal});
@@ -708,6 +713,8 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
       let finalData = spreadHome(userInfo?Array.from(uniqueMap.values()):prioritizeUnshown(Array.from(uniqueMap.values())));
 
       if (append) {
+        const existing=new Set(videos.map(v=>v.playlistId||v.videoId));
+        if(!finalData.some(v=>!existing.has(v.playlistId||v.videoId)))setMoreError('新しいおすすめがまだありません。もう一度読み込めます。');
         setVideos(prev => {
           const existingIds = new Set(prev.map(v => v.playlistId||v.videoId));
           const newVideos = finalData.filter((v: Video) => v && (v.playlistId||v.videoId) && !existingIds.has(v.playlistId||v.videoId));
@@ -717,11 +724,12 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
         setVideos(finalData);
       }
       setHasMore(userInfo?!!result.hasMore:finalData.length>0);
+      setPage(pageNum);
     } catch (err: any) {
       if (currentReqId !== recommendationRequestIdRef.current) return;
       console.error(err);
-      setHasMore(false);
-      if (!append) setError(err.message || 'エラーが発生しました');
+      if(append)setMoreError(err.message||'次のおすすめを取得できませんでした。');
+      else{setHasMore(false);setError(err.message||'エラーが発生しました');}
     } finally {
       if (currentReqId === recommendationRequestIdRef.current) {
         setLoading(false);
@@ -738,7 +746,7 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
     const requestId = ++recommendationRequestIdRef.current;
     if (append) setLoadingMore(true);
     else { setLoading(true); setVideos([]); }
-    setError('');
+    setError('');setMoreError('');
     try {
       const params = new URLSearchParams({ name: category, page: String(pageNum) });
       const data = await fetchJSON(`/api/home/category?${params}`);
@@ -753,11 +761,11 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
           return [...previous, ...result.filter(video => video.videoId && !seen.has(video.videoId) && (seen.add(video.videoId), true))];
         });
       } else setVideos(result);
-      setHasMore(!!data.hasMore);
+      setHasMore(!!data.hasMore);setPage(pageNum);
     } catch (error: any) {
       if (requestId === recommendationRequestIdRef.current) {
         if (!append) {const saved=loadHomeSnapshot(category,homeSnapshotScope);if(saved.length){setVideos(saved);updateCache(saved);setError('');}else setError(error.message || 'カテゴリのおすすめを取得できませんでした。');}
-        setHasMore(false);
+        if(append)setMoreError(error.message||'続きの取得に失敗しました。');else setHasMore(false);
       }
     } finally {
       if (requestId === recommendationRequestIdRef.current) {
@@ -785,7 +793,7 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
       }
       setView('search');
     }
-    setError('');
+    setError('');setMoreError('');
 
     try {
       const filters=searchFilterParams(new URLSearchParams(window.location.search));
@@ -811,9 +819,10 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
       } else {
         setVideos(newVideos);
       }
-      setHasMore(typeof data.hasMore==='boolean'?data.hasMore:newVideos.length > 0);
+      setHasMore(typeof data.hasMore==='boolean'?data.hasMore:newVideos.length > 0);setPage(pageNum);
     } catch (err: any) {
       console.error(err);
+      if(requestId===recommendationRequestIdRef.current&&append)setMoreError(err.message||'続きの取得に失敗しました。');
       if (requestId === recommendationRequestIdRef.current && !append) setError(err.message || 'エラーが発生しました');
     } finally {
       if (requestId === recommendationRequestIdRef.current) {
@@ -825,20 +834,19 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
   };
 
   // 無限スクロール検知
-  const handleScroll = useCallback(() => {
+  const handleScroll = useCallback((force:boolean|'retry'|Event=false) => {
     if (isSocial || (view !== 'home' && view !== 'search')) return;
     if (view === 'search' && !searchQuery.trim()) return;
-    if (loading || loadingMore || !hasMore || isFetchingMore.current) return;
+    if (loading || loadingMore || !hasMore || isFetchingMore.current || (moreError&&force!=='retry')) return;
 
     const scrollTop = window.scrollY || document.documentElement.scrollTop;
     const windowHeight = window.innerHeight;
     const totalHeight = document.documentElement.scrollHeight;
 
     // スクロール位置が下部近辺（1000px以内）に達したら次のページを事前取得
-    if (scrollTop + windowHeight >= totalHeight - 1000) {
+    if (force===true||force==='retry'||scrollTop + windowHeight >= totalHeight - 1000) {
       isFetchingMore.current = true;
       const nextPage = page + 1;
-      setPage(nextPage);
 
       if (view === 'home') {
         if (selectedCategory === 'すべて') fetchRecommendations(nextPage, true);
@@ -847,12 +855,16 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
         fetchSearch(searchQuery, nextPage, true);
       }
     }
-  }, [view, loading, loadingMore, hasMore, page, searchQuery, selectedCategory, location.search,isSocial]);
+  }, [view, loading, loadingMore, hasMore, page, searchQuery, selectedCategory, location.search,isSocial,moreError]);
 
   useEffect(() => {
-    window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, [handleScroll,isSocial]);
+    const detect=()=>handleScroll();
+    window.addEventListener('scroll',detect,{passive:true});
+    document.addEventListener('scroll',detect,{passive:true,capture:true});
+    const observer=new IntersectionObserver(entries=>{if(entries.some(entry=>entry.isIntersecting))handleScroll(true);},{rootMargin:'1000px 0px'});
+    if(loadMoreMarker.current)observer.observe(loadMoreMarker.current);
+    return ()=>{window.removeEventListener('scroll',detect);document.removeEventListener('scroll',detect,true);observer.disconnect();};
+  }, [handleScroll,isSocial,videos.length]);
 
   const handleSearch = (q: string) => {
     saveShortsInterest(q);
@@ -1285,6 +1297,10 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
                 </div>
               )}
 
+              {(view==='home'||view==='search')&&hasMore&&!loading&&<div ref={loadMoreMarker} className="py-5 text-center">
+                {moreError&&<p role="alert" className="mb-3 text-sm text-red-700">{moreError}</p>}
+                <button type="button" disabled={loadingMore} onClick={()=>handleScroll('retry')} className="rounded-full border border-gray-300 px-6 py-3 text-sm font-semibold disabled:opacity-50">{loadingMore?'読み込み中…':moreError?'再試行':'さらに読み込む'}</button>
+              </div>}
               {/* 無限スクロールローディングスピナー */}
               {loadingMore && (
                 <div className="flex items-center justify-center py-10 gap-3 text-gray-600">

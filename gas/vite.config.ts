@@ -5,6 +5,7 @@ import path from 'node:path';
 const root=process.cwd();
 export default defineConfig({
   plugins:[{name:'gas-compat',enforce:'pre',transform(code,id){
+    if(id.includes('/src/')&&/\.(tsx|ts)$/.test(id))code=code.replaceAll('window.innerWidth','((window as any).__XEROX_GAS_VIEWPORT_WIDTH__||window.innerWidth)');
     if(id.endsWith('/src/components/AppSwitcher.tsx'))code=code.replace(/'\/(app-icons\/[^']+)'/g,"((window as any).__XEROX_GAS_ASSETS__.base+'/$1')");
     if(id.endsWith('/src/index.css')||id.endsWith('/src/social/social.css'))code=code.replaceAll('100dvh','var(--gas-viewport-height, 100dvh)');
     if(id.endsWith('/src/MainApp.tsx'))code=code.replaceAll('window.location.search','location.search');
