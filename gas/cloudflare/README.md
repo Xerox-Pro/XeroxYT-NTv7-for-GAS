@@ -23,3 +23,7 @@ export default withGasKey(worker);
 4. `API_SHARED_SECRET` と `GAS_API_SHARED_SECRET` をそれぞれ既存値のまま保持し、デプロイ。秘密鍵をコードに書かない。
 
 GASからの新しい鍵で未ログインの `/api/account/session` が401、不正な鍵が403になることを確認してください。稼働版では `/api/health` もサイトログインが必要なため、未ログイン時は401です。
+
+## 有効なGASセッションの自動延長
+
+GAS専用鍵で認証された `/api/account/session` が成功した場合だけ、DBの `sessions` にある有効なセッションを最長1年先へ更新し、新しい有効期限のCookieを返します。更新は期限に7日以上の差がある場合だけ行います。GAS側では `/api/account/session` のSet-Cookieも保存する最新Code.gsが必要です。APIの認証拒否時や失効済みのセッションは延長しません。

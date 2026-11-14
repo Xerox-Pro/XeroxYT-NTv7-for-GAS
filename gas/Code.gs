@@ -126,8 +126,8 @@ function gasRequest(request) {
     if(status>=300&&status<400)return gasResult_(502,{error:'APIから想定外のリダイレクトが返されました。'});
     var responseHeaders=response.getAllHeaders();
     // Login/session cookie changes are processed before the next RPC can use them.
-    if(/^\/api\/account\/(?:login|register|logout)(?:\?|$)/.test(request.path)&&status>=200&&status<300)gasSaveCookie_(key,responseHeaders);
-    if(status===401&&/^\/api\/account\/session(?:\?|$)/.test(request.path))gasForgetCookie_(key);
+    if(/^\/api\/account\/(?:login|register|logout|session)(?:\?|$)/.test(request.path)&&status>=200&&status<300)gasSaveCookie_(key,responseHeaders);
+    // A failed session check must not erase a recoverable server-side record.
     if(method==='HEAD'||status===204)return gasResult_(status,{});
     if(!/application\/(?:json|[^;]+\+json)/i.test(String(gasHeader_(responseHeaders,'content-type')||'')))return gasResult_(502,{error:'GAS版ではJSON以外の動画・バイナリ中継に対応していません。',code:'GAS_STREAM_UNSUPPORTED'});
     var text=response.getContentText();

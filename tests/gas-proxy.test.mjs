@@ -66,3 +66,14 @@ test('persistent session survives cache eviction and a fresh GAS execution, whil
  h.cache.clear();saved.expires=Date.now()-1;h.persistent.set(key,JSON.stringify(saved));
  h.request('/api/account/session');assert.equal(h.calls.at(-1).headers.Cookie,undefined);assert.equal(h.persistent.size,0);
 });
+
+test('a session-check 401 preserves the stored cookie, and renewed cookies persist',()=>{
+ const h=harness(),token='b'.repeat(64),key='xyg:'+ 'c'.repeat(64);
+ h.sandbox.gasStoreCookie_(key,'__Host-xy_session='+token,Date.now()+100000);
+ h.reply({status:200,headers:{'Content-Type':'application/json','Set-Cookie':'__Host-xy_session='+token+'; Max-Age=31536000'},body:{user:{id:'one'}}});
+ h.request('/api/account/session');
+ const record=[...h.persistent.values()].map(v=>JSON.parse(v)).find(v=>v.expires>Date.now()+30000000000);
+ assert.ok(record);
+ h.reply({status:401,headers:{'Content-Type':'application/json'},body:{error:'unauthorized'}});
+ const count=h.persistent.size;h.request('/api/account/session');assert.equal(h.persistent.size,count);
+});

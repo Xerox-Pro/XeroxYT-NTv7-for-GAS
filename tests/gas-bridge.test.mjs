@@ -19,3 +19,12 @@ test('bridge routes JSON through RPC, preserves status and keeps third-party pla
  globalThis.google={script:{run:{withSuccessHandler(fn){complete=fn;return this;},withFailureHandler(){return this;},gasRequest(r){calls.push(r);complete({status:401,body:'{"error":"login required"}',headers:{'content-type':'application/json'}});}}}};
  try{installBridge();const r=await window.fetch('/api/auth/logout',{method:'POST'});assert.equal(r.status,401);assert.equal(calls[0].body,'{}');assert.equal(calls[0].headers['content-type'],'application/json');assert.equal(calls[0].path,'/api/auth/logout');await window.fetch('https://raw.githubusercontent.com/known/config.json');assert.equal(direct.length,1);}finally{for(const [key,value]of Object.entries(original)){if(value===undefined)delete globalThis[key];else globalThis[key]=value;}}
 });
+
+test('device cookie restores a missing local token and blocked storage does not crash startup',()=>{
+ const token='d'.repeat(64),stored=new Map();
+ const storage={getItem:()=>null,setItem:(key,value)=>stored.set(key,value)};
+ const cookies={cookie:'__Host-xy_gas_device='+token};
+ assert.equal(sessionToken(storage,webcrypto,cookies),token);assert.ok(cookies.cookie.includes('Partitioned'));
+ const blocked={getItem(){throw new Error('blocked');},setItem(){throw new Error('blocked');}};
+ assert.equal(sessionToken(blocked,webcrypto,{cookie:'__Host-xy_gas_device='+token}),token);
+});

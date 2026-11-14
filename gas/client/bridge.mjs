@@ -1,8 +1,13 @@
 import {createRpcTransport} from './transport.mjs';
 const SESSION_KEY='xerox_gas_bridge_session_v1';
-export function sessionToken(storage=localStorage,random=crypto){
- let token=storage.getItem(SESSION_KEY);
- if(!/^[a-f0-9]{64}$/.test(token||'')){token=Array.from(random.getRandomValues(new Uint8Array(32)),v=>v.toString(16).padStart(2,'0')).join('');storage.setItem(SESSION_KEY,token);}
+export function sessionToken(storage=localStorage,random=crypto,cookies=globalThis.document){
+ let token;try{token=storage.getItem(SESSION_KEY);}catch{}
+ if(!/^[a-f0-9]{64}$/.test(token||'')){
+  try{token=/(?:^|;\s*)__Host-xy_gas_device=([a-f0-9]{64})(?:;|$)/.exec(cookies?.cookie||'')?.[1];}catch{}
+ }
+ if(!/^[a-f0-9]{64}$/.test(token||''))token=Array.from(random.getRandomValues(new Uint8Array(32)),v=>v.toString(16).padStart(2,'0')).join('');
+ try{storage.setItem(SESSION_KEY,token);}catch{}
+ try{if(cookies)cookies.cookie='__Host-xy_gas_device='+token+'; Path=/; Secure; SameSite=None; Partitioned; Max-Age=31536000';}catch{}
  return token;
 }
 export function rpcRequest(request,signal,run=globalThis.google?.script?.run){

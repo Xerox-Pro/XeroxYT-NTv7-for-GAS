@@ -53,6 +53,7 @@ export default function AccountGate({ children }: { children: ReactNode }) {
   const active = useRef<User | null>(cachedUser);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sending = useRef(false);
+  const serverAuthenticated=useRef(false);
   const authEpoch = useRef(0);
   const sync = useRef<() => Promise<void>>(async () => {});
 
@@ -84,7 +85,8 @@ export default function AccountGate({ children }: { children: ReactNode }) {
       if (background) window.dispatchEvent(new CustomEvent('xerox-history-remote', { detail: history }));
       if (dirty) setTimeout(() => void sync.current(), 0);
     } catch (err: any) {
-      if (err.status === 401) { active.current = null; localStorage.removeItem(SESSION_HINT_KEY); setUser(null); setPhase('login'); setMessage('ログインの有効期限が切れました。'); }
+      if (err.status === 401 && background) { serverAuthenticated.current=false;setMessage('サーバーの認証を確認できません。端末内のデータを保持して表示しています。'); }
+      else if (err.status === 401) { setMessage('認証を確認できませんでした。もう一度ログインしてください。');setPhase('login'); }
       else if (background) { setMessage('クラウドの履歴を確認できません。端末内の履歴を表示しています。'); }
       else { setUser(u); setMessage(err instanceof Error ? err.message : '履歴を読み込めませんでした。'); setPhase('error'); }
     }
@@ -92,7 +94,7 @@ export default function AccountGate({ children }: { children: ReactNode }) {
 
   sync.current = async () => {
     const u = active.current;
-    if (!u || sending.current || !cache.current.dirty) return;
+    if (!u || !serverAuthenticated.current || sending.current || !cache.current.dirty) return;
     sending.current = true;
     const snapshot = cache.current;
     try {
@@ -100,6 +102,7 @@ export default function AccountGate({ children }: { children: ReactNode }) {
       cache.current = { ...cache.current, version: result.version, dirty: cache.current.history !== snapshot.history };
       persist(u); setMessage('');
     } catch (err: any) {
+      if(err.status===401)serverAuthenticated.current=false;
       if (err.status === 409) {
         try {
           const remote = await api('/history');
@@ -111,21 +114,36 @@ export default function AccountGate({ children }: { children: ReactNode }) {
       } else setMessage('履歴は端末に保存されています。同期を再試行します。');
     } finally {
       sending.current = false;
-      if (cache.current.dirty && active.current) timer.current = setTimeout(() => void sync.current(), 5000);
+      if (cache.current.dirty && active.current && serverAuthenticated.current) timer.current = setTimeout(() => void sync.current(), 5000);
     }
   };
 
   useEffect(() => {
-    if (cachedUser) active.current = cachedUser;
-    const epoch = authEpoch.current;
-    api('/session').then(({ user: existing }) => { if (authEpoch.current === epoch) return initialize(existing, false, cachedUser?.id === existing.id); }).catch((err) => {
-      if (authEpoch.current !== epoch) return;
-      if (err.status === 401) { active.current = null; localStorage.removeItem(SESSION_HINT_KEY); setUser(null); setPhase('login'); }
-      else if (cachedUser) setMessage('接続を確認できません。端末内の履歴を表示しています。');
-      else { setMessage('ログイン状態を確認できません。通信環境を確認してください。'); setPhase('error'); }
-    });
-    return () => { active.current = null; if (timer.current) clearTimeout(timer.current); };
-  }, [initialize, cachedUser]);
+    if(cachedUser)active.current=cachedUser;
+    let cancelled=false,busy=false,lastCheck=0;
+    const verify=async(force=false)=>{
+      if(cancelled||busy||(!force&&Date.now()-lastCheck<60000))return;
+      busy=true;lastCheck=Date.now();const epoch=authEpoch.current;
+      try{
+        const {user:existing}=await api('/session');
+        if(cancelled||authEpoch.current!==epoch)return;
+        if(!existing?.id)throw new Error('Invalid session response');
+        serverAuthenticated.current=true;
+        await initialize(existing,false,active.current?.id===existing.id);
+      }catch(err:any){
+        if(cancelled||authEpoch.current!==epoch)return;
+        serverAuthenticated.current=false;
+        if(active.current||cachedUser)setMessage('接続・認証を確認できません。端末内のデータを保持して表示しています。');
+        else if(err.status===401){setPhase('login');}
+        else{setMessage('ログイン状態を確認できません。通信環境を確認してください。');setPhase('error');}
+      }finally{busy=false;}
+    };
+    const resume=()=>{if(!document.hidden)void verify();};
+    void verify(true);
+    const interval=setInterval(resume,600000);
+    window.addEventListener('online',resume);window.addEventListener('focus',resume);document.addEventListener('visibilitychange',resume);
+    return ()=>{cancelled=true;active.current=null;clearInterval(interval);window.removeEventListener('online',resume);window.removeEventListener('focus',resume);document.removeEventListener('visibilitychange',resume);if(timer.current)clearTimeout(timer.current);};
+  },[initialize,cachedUser]);
 
   useEffect(() => {
     const changed = (event: Event) => {
@@ -149,15 +167,15 @@ export default function AccountGate({ children }: { children: ReactNode }) {
       setPhase('loading');
       sessionStorage.removeItem('xerox_guest');
       const result = await api(register ? '/register' : '/login', 'POST', { username, password });
-      setPassword(''); setConfirm(''); await initialize(result.user, migrate);
+      serverAuthenticated.current=true;setPassword(''); setConfirm(''); await initialize(result.user, migrate);
     } catch (err) { setMessage(err instanceof Error ? err.message : 'ログインに失敗しました。'); setPhase('login'); }
   }
   async function logout() {
     if (cache.current.dirty) { await sync.current(); if (cache.current.dirty) { setMessage('履歴の同期が完了していません。端末内には保存されています。'); return; } }
-    try { authEpoch.current++; await api('/logout', 'POST', {}); active.current = null; localStorage.removeItem(SESSION_HINT_KEY); setUser(null); setPhase('login'); setMessage(''); }
+    try { authEpoch.current++; await api('/logout', 'POST', {});serverAuthenticated.current=false; active.current = null; localStorage.removeItem(SESSION_HINT_KEY); setUser(null); setPhase('login'); setMessage(''); }
     catch { setMessage('ログアウトできませんでした。'); }
   }
-  if (phase === 'ready' && user) return <AccountContext.Provider value={{ username: user.username, logout }}>{children}{message && <div role="status" className="fixed top-16 right-4 z-[200] bg-gray-900 text-white text-xs p-3 rounded-xl max-w-xs shadow-lg">{message}</div>}</AccountContext.Provider>;
+  if (phase === 'ready' && user) return <AccountContext.Provider value={{ username: user.username, logout }}>{children}{message && <div role="status" className="fixed top-16 right-4 z-[200] bg-gray-900 text-white text-xs p-3 rounded-xl max-w-xs shadow-lg">{message}{!serverAuthenticated.current&&<button type="button" className="block mt-2 underline" onClick={()=>{setPassword('');setConfirm('');setPhase('login');setMessage('端末内のデータを保持したまま再接続します。');}}>再ログインして同期を再開</button>}</div>}</AccountContext.Provider>;
 
   return <main className="min-h-screen bg-gray-50 flex items-center justify-center p-5"><section className="w-full max-w-md bg-white rounded-3xl shadow-lg border border-gray-100 p-7 sm:p-9"><h1 className="text-2xl font-bold text-gray-900">XeroxYT-NTv7 for GAS</h1><p className="text-sm text-gray-500 mt-2">アカウントにログインして、視聴履歴を端末とクラウドに保存します。</p>{phase === 'error' ? <><p className="mt-6 text-red-700" role="alert">{message}</p><button className="mt-4 rounded-xl bg-gray-900 text-white px-4 py-2" onClick={() => user ? void initialize(user) : window.location.reload()}>再試行</button></> : <form onSubmit={submit} className="mt-7 space-y-4"><h2 className="text-lg font-semibold">{register ? '新規アカウント作成' : 'ログイン'}</h2><label className="block text-sm">ユーザー名<input autoComplete="username" value={username} onChange={e => setUsername(e.target.value)} required minLength={3} maxLength={32} pattern="[A-Za-z0-9_]+" className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2.5" placeholder="英数字と _" /></label><label className="block text-sm">パスワード<input type="password" autoComplete={register ? 'new-password' : 'current-password'} value={password} onChange={e => setPassword(e.target.value)} required minLength={12} maxLength={128} className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2.5" placeholder="12文字以上" /></label>{register && <label className="block text-sm">パスワード（確認）<input type="password" autoComplete="new-password" value={confirm} onChange={e => setConfirm(e.target.value)} required className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2.5" /></label>}{!localStorage.getItem('xerox_last_account_id') && <label className="flex items-start gap-2 text-sm text-gray-600"><input type="checkbox" checked={migrate} onChange={e => setMigrate(e.target.checked)} className="mt-1" />この端末にある以前の視聴履歴を取り込む</label>}{message && <p className="text-sm text-red-700" role="alert">{message}</p>}<button disabled={phase === 'loading'} className="w-full bg-gray-900 disabled:opacity-60 text-white rounded-xl py-3 font-semibold">{phase === 'loading' ? '処理中…' : register ? 'アカウントを作成' : 'ログイン'}</button><button type="button" onClick={() => { setRegister(!register); setMessage(''); }} className="w-full text-sm text-blue-700 py-2">{register ? 'すでにアカウントを持っている' : '新規アカウントを作成'}</button>{register && <p className="text-xs text-gray-500">パスワード再設定機能はまだありません。忘れないよう安全に保管してください。</p>}</form>}</section></main>;
 }

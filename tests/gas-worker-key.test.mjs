@@ -20,3 +20,15 @@ test('GAS-only key preserves existing credentials and rewrites only authenticate
  assert.equal(calls.length,3);
  assert.equal(env.API_SHARED_SECRET,'existing-site-key');
 });
+
+test('valid GAS sessions renew server expiry and cookie; rejected sessions never renew',async()=>{
+ const statements=[];let valid=true;
+ const db={prepare(sql){return {bind(...args){return {first:async()=>({expires_at:Date.now()+1000}),run:async()=>{statements.push({sql,args});return {meta:{changes:1}};}};}};}};
+ const env={API_SHARED_SECRET:'old',GAS_API_SHARED_SECRET:'gas',ALLOWED_ORIGINS:'https://site.example.com',DB:db};
+ const wrapped=withGasKey({fetch:async()=>Response.json(valid?{user:{id:'one'}}:{error:'expired'},{status:valid?200:401})});
+ const req=()=>new Request('https://api.example.com/api/account/session',{headers:{Authorization:'Bearer gas',Origin:'https://script.google.com',Cookie:'__Host-xy_session='+'a'.repeat(64)}});
+ const response=await wrapped.fetch(req(),env,{});
+ assert.match(response.headers.get('set-cookie'),/Max-Age=31536000/);assert.equal(statements.length,1);
+ assert.ok(statements[0].args[0]>Date.now()+30000000000);assert.match(statements[0].args[1],/^[a-f0-9]{64}$/);
+ valid=false;assert.equal((await wrapped.fetch(req(),env,{})).status,401);assert.equal(statements.length,1);
+});

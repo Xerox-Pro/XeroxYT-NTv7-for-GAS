@@ -7,7 +7,7 @@ const release=JSON.parse(await readFile('gas/web/release.json','utf8'));
 const js=await readFile('gas/web/'+release.entry,'utf8');
 const css=await readFile('gas/web/'+release.css,'utf8');
 assert.ok(css.length>0);
-async function checkView(signedIn){
+async function checkView(signedIn,sessionRejected=false){
 const calls=[],failures=[];
 const virtualConsole=new VirtualConsole();
 virtualConsole.on('jsdomError',error=>failures.push(error));
@@ -39,8 +39,8 @@ w.google={script:{get run(){
  return {withSuccessHandler(fn){success=fn;return this;},withFailureHandler(){return this;},gasRequest(request){
   calls.push(request);
   const session=request.path==='/api/account/session';
-  const data=session?(signedIn?{user}:{error:'login required'}):request.path==='/api/account/history'?{history:[],version:0}:request.path.includes('/status')?{connected:false,configured:false}:request.path.includes('/limits')?{videos:0,searches:0,total:0}:[];
-  w.setTimeout(()=>success({status:session&&!signedIn?401:200,body:JSON.stringify(data),headers:{'content-type':'application/json'}}),0);
+  const data=session?(signedIn&&!sessionRejected?{user}:{error:'login required'}):request.path==='/api/account/history'?{history:[],version:0}:request.path.includes('/status')?{connected:false,configured:false}:request.path.includes('/limits')?{videos:0,searches:0,total:0}:[];
+  w.setTimeout(()=>success({status:session&&(!signedIn||sessionRejected)?401:200,body:JSON.stringify(data),headers:{'content-type':'application/json'}}),0);
  }};
 }}};
 async function until(check){
@@ -71,6 +71,8 @@ try{
  await until(()=>w.document.body.textContent.includes('通常動画：1件'));
  assert.ok(w.document.body.textContent.includes('履歴をJSONで書き出す'));
  assert.equal(w.location.pathname,'/userCodeAppPanel');
+ assert.ok(w.localStorage.getItem('xerox_site_session_hint'));
+ assert.equal(w.document.querySelector('input[autocomplete="username"]'),null);
  assert.ok(calls.every(call=>call.path.startsWith('/api/')&&/^[a-f0-9]{64}$/.test(call.session)));
  assert.equal(failures.length,0,failures.map(error=>error.message).join('\n'));
  console.info('GAS bundle verified: authenticated view, Instagram hash navigation and RPC.');
@@ -79,3 +81,5 @@ try{
 }
 await checkView(false);
 await checkView(true);
+
+await checkView(true,true);
