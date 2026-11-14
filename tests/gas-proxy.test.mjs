@@ -40,10 +40,10 @@ test('blocks non-JSON streams, redirects, oversized payloads and exception URL l
 });
 test('loader follows latest manifest while pinning JS and CSS to one immutable revision',()=>{
  const h=harness();let current;
- h.sandbox.HtmlService={createTemplateFromFile:()=>{current={evaluate(){return this;},setTitle(){return this;},addMetaTag(){return this;}};return current;},createHtmlOutput:()=>({setTitle(){return this;}})};
+ h.sandbox.HtmlService={createTemplateFromFile:()=>{current={evaluate(){return this;},setTitle(){return this;},setFaviconUrl(url){this.favicon=url;return this;},addMetaTag(){return this;}};return current;},createHtmlOutput:()=>({setTitle(){return this;}})};
  h.sandbox.ScriptApp={getService:()=>({getUrl:()=> 'https://script.google.com/macros/s/stable/exec'})};
  const release=revision=>({status:200,headers:{},body:{revision,entry:'app-hash.js',css:'style-hash.css'}});
- h.reply(release('1'.repeat(40)));h.sandbox.doGet({parameter:{route:'/watch?v=test'}});const first=JSON.parse(current.assetConfig);assert.ok(first.js.includes('@'+'1'.repeat(40)));assert.equal(first.js.split('/gas/web/')[0],first.css.split('/gas/web/')[0]);assert.equal(first.route,'/watch?v=test');
+ h.reply(release('1'.repeat(40)));h.sandbox.doGet({parameter:{route:'/watch?v=test'}});const first=JSON.parse(current.assetConfig);assert.ok(first.js.includes('@'+'1'.repeat(40)));assert.equal(first.js.split('/gas/web/')[0],first.css.split('/gas/web/')[0]);assert.equal(first.route,'/watch?v=test');assert.equal(current.favicon,first.base+'/app-icons/youtube.jpeg');
  h.reply(release('2'.repeat(40)));h.sandbox.doGet({parameter:{}});const second=JSON.parse(current.assetConfig);assert.ok(second.js.includes('@'+'2'.repeat(40)));assert.equal(first.webAppUrl,second.webAppUrl);assert.equal(JSON.stringify(second).includes('private.example.com'),false);
 });
 test('HTML loads both released stylesheet and script without API configuration',()=>{

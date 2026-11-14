@@ -18,7 +18,7 @@ function doGet(e) {
     var base = 'https://cdn.jsdelivr.net/gh/' + repo + '@' + release.revision + '/gas/web';
     var template = HtmlService.createTemplateFromFile('Index');
     template.assetConfig = JSON.stringify({base:base,js:base+'/'+release.entry,css:base+'/'+release.css,webAppUrl:ScriptApp.getService().getUrl(),route:e&&e.parameter&&/^\/(?!\/)/.test(e.parameter.route||'')?e.parameter.route:null}).replace(/</g,'\\u003c');
-    return template.evaluate().setTitle('XeroxYT-NTv7 for GAS').addMetaTag('viewport','width=device-width, initial-scale=1');
+    return template.evaluate().setTitle('XeroxYT-NTv7 for GAS').setFaviconUrl(base+'/app-icons/youtube.jpeg').addMetaTag('viewport','width=device-width, initial-scale=1');
   } catch (_) {
     return HtmlService.createHtmlOutput('<!doctype html><html lang="ja"><body><h1>画面を読み込めませんでした</h1><p>GitHubのGASリリースとスクリプトプロパティを確認して再読み込みしてください。</p></body></html>').setTitle('XeroxYT-NTv7 for GAS');
   }
