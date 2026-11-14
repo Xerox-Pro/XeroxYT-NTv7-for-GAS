@@ -89,7 +89,7 @@ Worker URLを普通にブラウザで開くと403になることがあります�
 
 ## 6. GASに設定
 
-[GASセットアップ](README.md) の手順で `Code.gs` / `Index.html` / `appsscript.json` を用意し、スクリプトプロパティを登録します。
+[GASセットアップ](README.md) の手順で 固定ローダーの `Code.gs` / `appsscript.json` を用意し、スクリプトプロパティを登録します。
 
 | GASのスクリプトプロパティ | 設定する値 |
 | --- | --- |

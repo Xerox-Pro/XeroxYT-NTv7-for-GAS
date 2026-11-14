@@ -2,7 +2,7 @@ name: Publish GAS assets
 on:
   push:
     branches: [main]
-    paths: ['src/**', 'public/app-icons/**', 'gas/client/**', 'gas/vite.config.ts', 'scripts/**', 'tests/gas-*.test.mjs', '*.mjs', 'tsconfig.json', 'package*.json', '.github/workflows/gas-assets.yml']
+    paths: ['src/**', 'public/app-icons/**', 'gas/client/**', 'gas/server/**', 'gas/Index.html', 'gas/Code.gs', 'gas/vite.config.ts', 'scripts/**', 'tests/gas-*.test.mjs', '*.mjs', 'tsconfig.json', 'package*.json', '.github/workflows/gas-assets.yml']
   workflow_dispatch:
 permissions:
   contents: write

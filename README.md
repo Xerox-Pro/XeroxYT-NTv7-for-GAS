@@ -10,7 +10,7 @@ Google Apps Script専用の独立したフロントエンドです。YouTube・I
 
 ## このリポジトリの構成
 
-`src/` はGAS版の画面ソース、`gas/client/` はGAS通信・ハッシュルーター、`gas/Code.gs` はサーバー中継です。VercelのAPI関数・サーバー・デプロイ設定は含みません。バックエンドは別途、自分のCloudflareアカウントへ構築します。
+`src/` はGAS版の画面ソース、`gas/client/` はGAS通信・ハッシュルーター、`gas/Code.gs` は固定ローダー、`gas/server/Runtime.gs` は自動更新されるサーバー中継です。HTMLもGitHubから取得します。VercelのAPI関数・サーバー・デプロイ設定は含みません。バックエンドは別途、自分のCloudflareアカウントへ構築します。
 
 ```sh
 npm ci --ignore-scripts
@@ -28,7 +28,7 @@ APIのURLと共有鍵はGASのスクリプトプロパティに設定します�
 
 以前のGAS版を公開済みの場合、スクリプトプロパティの `ASSET_REPO` を `Xerox-Pro/XeroxYT-NTv7-for-GAS` に変更してください。ASSET_BRANCHはgas-runtimeのままです。GASの公開URLは変わりません。
 
-ASSET_REPOを未設定で旧コードの既定値を利用している場合は、このプロパティを追加するだけで切り替えられます。Code.gsも更新する場合は、既存デプロイを編集して新しいバージョンへ更新すれば同じURLを維持できます。
+ASSET_REPOを未設定で旧コードの既定値を利用している場合は、このプロパティを追加するだけで切り替えられます。従来のGASコードから固定ローダーへの切り替えは、最新Code.gsへ全文を置き換え、既存デプロイを一度更新してください。以後は通常のサーバー・HTML変更もGitHubの更新だけで反映されます。
 
 ## 制約と検証
 

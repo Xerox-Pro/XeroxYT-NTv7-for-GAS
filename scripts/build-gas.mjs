@@ -1,4 +1,6 @@
 import {build} from 'vite';
+import {createHash} from 'node:crypto';
+import vm from 'node:vm';
 import {readFile,writeFile,readdir,copyFile,mkdir} from 'node:fs/promises';
 import {execFileSync} from 'node:child_process';
 await build({configFile:'gas/vite.config.ts'});
@@ -10,5 +12,11 @@ if(!entry||!css)throw new Error('GAS build files missing');
 // Catch accidental reintroduction of the browser's origin-discovery transport.
 const js=await readFile('gas/web/'+entry,'utf8');
 if(js.includes('/api/transport-config')||js.includes('/api/account/cloudflare-session'))throw new Error('Direct API transport leaked into GAS bundle');
-await writeFile('gas/web/release.json',JSON.stringify({version:1,entry,css,source:execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim()},null,2)+'\n');
+const source=await readFile('gas/server/Runtime.gs','utf8'),html=await readFile('gas/Index.html','utf8');
+new vm.Script(source);
+const server=JSON.stringify({version:1,source,html});
+if(Buffer.byteLength(server,'utf8')>75000)throw new Error('GAS runtime exceeds loader cache limit');
+await writeFile('gas/web/server-runtime.json',server);
+const serverHash=createHash('sha256').update(server).digest('hex');
+await writeFile('gas/web/release.json',JSON.stringify({version:1,entry,css,server:'server-runtime.json',serverHash,source:execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim()},null,2)+'\n');
 console.info('GAS assets ready:',entry,css);

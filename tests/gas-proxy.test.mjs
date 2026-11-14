@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
-const source=readFileSync(new URL('../gas/Code.gs',import.meta.url),'utf8');
+const source=readFileSync(new URL('../gas/server/Runtime.gs',import.meta.url),'utf8');
 function harness(){
  const settings={API_BASE_URL:'https://private.example.com',ACCOUNT_BASE_URL:'https://account.example.com',UPSTREAM_ORIGIN:'https://front.example.com',API_SHARED_SECRET:'top-secret-value'};
  const cache=new Map(),persistent=new Map(),calls=[];let reply={status:200,headers:{'Content-Type':'application/json'},body:{ok:true}};
@@ -40,11 +40,11 @@ test('blocks non-JSON streams, redirects, oversized payloads and exception URL l
 });
 test('loader follows latest manifest while pinning JS and CSS to one immutable revision',()=>{
  const h=harness();let current;
- h.sandbox.HtmlService={createTemplateFromFile:()=>{current={evaluate(){return this;},setTitle(){return this;},setFaviconUrl(url){this.favicon=url;return this;},addMetaTag(){return this;}};return current;},createHtmlOutput:()=>({setTitle(){return this;}})};
+ h.sandbox.HtmlService={createTemplate:()=>{current={evaluate(){return this;},setTitle(){return this;},setFaviconUrl(url){this.favicon=url;return this;},addMetaTag(){return this;}};return current;},createHtmlOutput:()=>({setTitle(){return this;}})};
  h.sandbox.ScriptApp={getService:()=>({getUrl:()=> 'https://script.google.com/macros/s/stable/exec'})};
  const release=revision=>({status:200,headers:{},body:{revision,entry:'app-hash.js',css:'style-hash.css'}});
- h.reply(release('1'.repeat(40)));h.sandbox.doGet({parameter:{route:'/watch?v=test'}});const first=JSON.parse(current.assetConfig);assert.ok(first.js.includes('@'+'1'.repeat(40)));assert.equal(first.js.split('/gas/web/')[0],first.css.split('/gas/web/')[0]);assert.equal(first.route,'/watch?v=test');assert.equal(current.favicon,first.base+'/app-icons/youtube.jpeg');
- h.reply(release('2'.repeat(40)));h.sandbox.doGet({parameter:{}});const second=JSON.parse(current.assetConfig);assert.ok(second.js.includes('@'+'2'.repeat(40)));assert.equal(first.webAppUrl,second.webAppUrl);assert.equal(JSON.stringify(second).includes('private.example.com'),false);
+ h.sandbox.GAS_INDEX_HTML_='<html></html>';h.sandbox.GAS_RELEASE_={repo:'Xerox-Pro/XeroxYT-NTv7-for-GAS',release:release('1'.repeat(40)).body};h.sandbox.doGet({parameter:{route:'/watch?v=test'}});const first=JSON.parse(current.assetConfig);assert.ok(first.js.includes('@'+'1'.repeat(40)));assert.equal(first.js.split('/gas/web/')[0],first.css.split('/gas/web/')[0]);assert.equal(first.route,'/watch?v=test');assert.equal(current.favicon,first.base+'/app-icons/youtube.jpeg');
+ h.sandbox.GAS_RELEASE_.release=release('2'.repeat(40)).body;h.sandbox.doGet({parameter:{}});const second=JSON.parse(current.assetConfig);assert.ok(second.js.includes('@'+'2'.repeat(40)));assert.equal(first.webAppUrl,second.webAppUrl);assert.equal(JSON.stringify(second).includes('private.example.com'),false);
 });
 test('HTML loads both released stylesheet and script without API configuration',()=>{
  const html=readFileSync(new URL('../gas/Index.html',import.meta.url),'utf8');
