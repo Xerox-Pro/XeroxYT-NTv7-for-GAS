@@ -1,9 +1,8 @@
 {
   "version": 1,
-  "entry": "app-Cda3ObLn.js",
-  "css": "style-B91Wi2Kt.css",
+  "entry": "app-DUpbz15y.js",
+  "css": "style-OQQ6qc_6.css",
   "server": "server-runtime.json",
   "serverHash": "54270b58f519bd5d868efa8c5384dc297f0c98e0e3334ce79820a796eee22fb9",
-  "source": "5217dd0b2f23c257f0870c8e30d877de054e998d",
-  "revision": "fc796c05230dc0d59a6fd48cceca04e3784d2c61"
+  "source": "f959faae2abc88d7dc60d477474749ad2a658906"
 }
