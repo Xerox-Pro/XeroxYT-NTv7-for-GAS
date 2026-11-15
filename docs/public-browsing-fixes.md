@@ -11,3 +11,5 @@ APIのCloudflare配信と検証結果: https://github.com/Xerox-Pro/XeroxYT-NTv7
 Instagram公開検索・TikTok公開おすすめは提供元の拒否・上限が残っています。ストーリー、DM、ノート・ストーリー投稿の復旧を保証する変更ではありません。
 
 このソース変更をGAS版へ配信するには、既存のGAS assets公開ワークフローと更新手順を実行してください。今回Vercelへの配信は行っていません。
+
+追加更新: 公開投稿追加はTikTok・Instagramの公式共有リンクにも対応します。APIにはGAS鍵の受付を常設し、TikTok公開フィードのBrowser Run取得とInstagram公開投稿の匿名web API取得を追加しました。キーワード検索・ストーリー・ログイン後の投稿機能は制限が残っています。
