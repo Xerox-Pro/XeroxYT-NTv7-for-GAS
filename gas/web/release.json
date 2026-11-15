@@ -1,9 +1,8 @@
 {
   "version": 1,
-  "entry": "app-DBmUG7uP.js",
+  "entry": "app-DlTCXryK.js",
   "css": "style-B91Wi2Kt.css",
   "server": "server-runtime.json",
   "serverHash": "54270b58f519bd5d868efa8c5384dc297f0c98e0e3334ce79820a796eee22fb9",
-  "source": "2d00afaac656a4587d9e3a8ae51c17a510e8577f",
-  "revision": "c0badc6a883ed4a66f961b2cfbcd690f92c37fa3"
+  "source": "eb3d0232c2f5cabbb1160709ae7fe9f35819fe8d"
 }
