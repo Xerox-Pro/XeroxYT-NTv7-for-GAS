@@ -6,7 +6,6 @@ import {installResponsive} from './responsive.mjs';
 import {installViewport} from './viewport.mjs';
 import App from '../../src/App';
 import '../../src/index.css';
-import '../../src/social/switcher.css';
 import './layout.css';
 import {warmDeviceEmbedConfig} from '../../src/lib/deviceEmbed.mjs';
 installResponsive();
