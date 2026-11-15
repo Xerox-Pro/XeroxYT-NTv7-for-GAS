@@ -81,7 +81,8 @@ try{
   assert.equal(page2.length,2);assert.equal(page2[0].path,page2[1].path);
  }
  w.location.hash='/instagram';
- await until(()=>calls.some(call=>call.path.startsWith('/api/instagram/')));
+ await until(()=>w.location.hash==='#/');
+ assert.ok(!calls.some(call=>/^\/api\/(instagram|tiktok)\//.test(call.path)));
  w.location.hash='/feed/library';
  await until(()=>[...w.document.querySelectorAll('summary')].some(node=>node.textContent.includes('ローカルデータ')));
  w.localStorage.setItem('xerox_account_history_'+user.id,JSON.stringify({history:[{videoId:'local-test',title:'端末の履歴'}],version:1,dirty:true,savedAt:new Date().toISOString()}));
@@ -93,7 +94,7 @@ try{
  assert.equal(w.document.querySelector('input[autocomplete="username"]'),null);
  assert.ok(calls.every(call=>call.path.startsWith('/api/')&&/^[a-f0-9]{64}$/.test(call.session)));
  assert.equal(failures.length,0,failures.map(error=>error.message).join('\n'));
- console.info('GAS bundle verified: authenticated view, Instagram hash navigation and RPC.');
+ console.info('GAS bundle verified: authenticated view, removed SNS route redirection and RPC.');
 }catch(error){console.error(failures.map(failure=>failure.message));throw error;}finally{w.close();}
 
 }
