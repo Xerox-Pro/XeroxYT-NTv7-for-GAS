@@ -114,7 +114,7 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
   // Auth state
   const [userInfo,setUserInfo]=useState<UserInfo|null>(()=>{try{if(localStorage.getItem('xerox_youtube_linked')==='1'){const user=JSON.parse(localStorage.getItem('xerox_user_info')||'null');if(typeof user?.name==='string')return user;}}catch{}return null;});
   const [googleStatusReady,setGoogleStatusReady]=useState(false);
-  const homePublicFallback=useRef(false);
+
   const homeSnapshotScope=(siteAccount?.username||'guest')+(userInfo?':youtube':'');
 
   const [loading, setLoading] = useState(true);
@@ -604,7 +604,7 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
     if(isSocial)return;
     let cancelled=false;youtubeGeneration.current++;
     setGoogleStatusReady(false);localStorage.removeItem('xerox_youtube_credentials');
-    fetchJSON('/api/auth/status',{signal:inactiveRequests.current.signal}).then(status=>{if(cancelled)return;if(status.connected&&status.user){localStorage.setItem('xerox_youtube_linked','1');setUserInfo(status.user);window.dispatchEvent(new Event('xerox-youtube-connection'));}else{localStorage.removeItem('xerox_youtube_linked');setUserInfo(null);}setGoogleStatusReady(true);}).catch(()=>{if(!cancelled){setAuthError('Google連携を確認できないため、公開おすすめを表示しています。連携情報はサーバーに保持されています。');setUserInfo(null);localStorage.removeItem('xerox_youtube_linked');window.dispatchEvent(new Event('xerox-youtube-connection'));setGoogleStatusReady(true);}});
+    fetchJSON('/api/auth/status',{signal:inactiveRequests.current.signal}).then(status=>{if(cancelled)return;if(status.connected&&status.user){localStorage.setItem('xerox_youtube_linked','1');setUserInfo(status.user);window.dispatchEvent(new Event('xerox-youtube-connection'));}else{localStorage.removeItem('xerox_youtube_linked');setUserInfo(null);}setGoogleStatusReady(true);}).catch(()=>{if(!cancelled){setAuthError(localStorage.getItem('xerox_youtube_linked')==='1'?'Google連携の確認に失敗しました。連携情報を保持して個人向けホームを再試行します。':'Google連携を確認できませんでした。未連携の公開ホームを表示しています。');setGoogleStatusReady(true);}});
     return()=>{cancelled=true;youtubeGeneration.current++;};
   },[siteAccount?.username,isSocial]);
   useEffect(()=>{if(isSocial||!googleStatusReady)return;if(userInfo)void fetchYoutubeAuthData();setHomeShorts({category:'',videos:[]});setSelectedCategory('すべて');setPage(1);if(googleStatusReady&&location.pathname==='/')void fetchRecommendations(1,false);},[!!userInfo,googleStatusReady,isSocial]);
@@ -668,16 +668,9 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
         page: pageNum.toString(),
         refreshNonce: homeSeed.current,
       });
-      if(pageNum===1){personalHomeCursor.current='';homePublicFallback.current=false;}
-      let personal=!!userInfo&&!homePublicFallback.current;
-      let result;
-      try { result=await fetchJSON(personal?'/api/user/feed/home?continuation='+encodeURIComponent(personalHomeCursor.current):`/api/recommendations?${queryParams}`,{signal:inactiveRequests.current.signal}); }
-      catch(error:any){
-        if(!personal||inactiveRequests.current.signal.aborted||error.isDailyLimit||[400,403,404,429].includes(error.status))throw error;
-        result=await fetchJSON(`/api/recommendations?${queryParams}`,{signal:inactiveRequests.current.signal});
-        personal=false;homePublicFallback.current=true;
-        setAuthError('個人向けホームを取得できないため、公開おすすめを表示しています。');
-      }
+      if(pageNum===1)personalHomeCursor.current='';
+      const personal=!!userInfo||localStorage.getItem('xerox_youtube_linked')==='1';
+      const result=await fetchJSON(personal?'/api/user/feed/home?continuation='+encodeURIComponent(personalHomeCursor.current):`/api/recommendations?${queryParams}`,{signal:inactiveRequests.current.signal});
       if (currentReqId !== recommendationRequestIdRef.current) return;
       if(personal){personalHomeCursor.current=result.continuation||'';setHasMore(!!result.hasMore);}
 
@@ -719,7 +712,7 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
           uniqueMap.set(v.playlistId||v.videoId, v);
         }
       });
-      let finalData = spreadHome(personal?Array.from(uniqueMap.values()):prioritizeUnshown(Array.from(uniqueMap.values())));
+      const finalData: Video[] = personal?Array.from(uniqueMap.values()):spreadHome(prioritizeUnshown(Array.from(uniqueMap.values())));
 
       if (append) {
         const existing=new Set(videos.map(v=>v.playlistId||v.videoId));
@@ -727,7 +720,7 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
         setVideos(prev => {
           const existingIds = new Set(prev.map(v => v.playlistId||v.videoId));
           const newVideos = finalData.filter((v: Video) => v && (v.playlistId||v.videoId) && !existingIds.has(v.playlistId||v.videoId));
-          return [...prev, ...spreadHome(newVideos,prev)];
+          return [...prev, ...(personal?newVideos:spreadHome(newVideos,prev))];
         });
       } else {
         setVideos(finalData);
