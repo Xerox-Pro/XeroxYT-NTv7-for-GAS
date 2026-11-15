@@ -20,6 +20,11 @@ test('server chooses fixed URL, origin, shared secret and ignores caller credent
  const h=harness();const r=h.request('/api/search?q=test','a'.repeat(64),{headers:{authorization:'evil',cookie:'other',origin:'https://evil.example'}});
  assert.equal(r.status,200);assert.equal(h.calls[0].url,'https://private.example.com/api/search?q=test');assert.equal(h.calls[0].headers.Authorization,'Bearer top-secret-value');assert.equal(h.calls[0].headers.Origin,'https://front.example.com');assert.equal(h.calls[0].headers.Cookie,undefined);assert.equal(h.calls[0].followRedirects,false);
 });
+test('long personal feed continuations use a short upstream URL and a JSON body',()=>{
+ const h=harness(),continuation='a'.repeat(55000),body=JSON.stringify({continuation});
+ assert.equal(h.request('/api/user/feed/home','a'.repeat(64),{method:'POST',headers:{'content-type':'application/json'},body}).status,200);
+ assert.equal(h.calls[0].url,'https://private.example.com/api/user/feed/home');assert.equal(h.calls[0].method,'post');assert.equal(JSON.parse(h.calls[0].payload).continuation,continuation);
+});
 test('site cookies stay server-side and are isolated per browser session',()=>{
  const h=harness(),cookie='f'.repeat(64);h.reply({status:200,headers:{'Content-Type':'application/json','Set-Cookie':'__Host-xy_session='+cookie+'; Path=/; Secure; HttpOnly'},body:{user:{id:'one'}}});
  const login=h.request('/api/account/login','a'.repeat(64),{method:'POST',headers:{'content-type':'application/json'},body:'{"username":"one"}'});assert.equal(JSON.stringify(login).includes(cookie),false);
