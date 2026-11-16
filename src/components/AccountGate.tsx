@@ -8,7 +8,7 @@ export const AccountContext = createContext<{ username: string; isMaster?: boole
 export const useSiteAccount = () => useContext(AccountContext);
 const LEGACY_KEY = 'xerox_watch_history';
 const SESSION_HINT_KEY = 'xerox_site_session_hint';
-const BAN_LOCK_KEY = 'xerox_device_ban_v1';
+const BAN_LOCK_KEY = 'xerox_device_ban_v2';
 const accountKey = (id: string) => `xerox_account_history_${id}`;
 // These values are device-local; keep them separate when accounts share a browser.
 const deviceKeys = ['xerox_youtube_linked', 'xerox_short_history', 'xerox_youtube_credentials', 'xerox_user_info', 'xerox_subscriptions', 'xerox_user_playlists', 'xerox_ai_interests', 'xerox_video_cache'];
