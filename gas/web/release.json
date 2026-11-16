@@ -1,9 +1,8 @@
 {
   "version": 1,
-  "entry": "app-DHfeBwd7.js",
-  "css": "style-Cf7ZaOnN.css",
+  "entry": "app-CWnm_PHD.js",
+  "css": "style-CQfedFKV.css",
   "server": "server-runtime.json",
   "serverHash": "54270b58f519bd5d868efa8c5384dc297f0c98e0e3334ce79820a796eee22fb9",
-  "source": "2e4e4fb3a82a0121a67e0ee214751aa1ea31fe11",
-  "revision": "6e019923a7514a82ef196258d8f7f7e948315c6f"
+  "source": "a1854ee0fa1f5144956222fd13e896052811cbb4"
 }
