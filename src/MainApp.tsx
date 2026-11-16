@@ -676,15 +676,14 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
       });
       if(pageNum===1)personalHomeCursor.current='';
       let result:any;
-      if(userInfo)result=await fetchJSON('/api/user/feed/home?continuation='+encodeURIComponent(personalHomeCursor.current),{signal:inactiveRequests.current.signal});
+      if(userInfo)result=await fetchJSON('/api/user/feed/home?continuation='+encodeURIComponent(personalHomeCursor.current),{signal:inactiveRequests.current.signal}).catch(()=>fetchJSON(`/api/recommendations?${queryParams.toString()}`,{signal:inactiveRequests.current.signal}));
       else if(sharedRecommendations){
         const [shared,inferred]=await Promise.allSettled([fetchJSON('/api/user/feed/home?continuation='+encodeURIComponent(personalHomeCursor.current),{signal:inactiveRequests.current.signal}),fetchJSON(`/api/recommendations?${queryParams.toString()}`,{signal:inactiveRequests.current.signal})]);
-        if(shared.status==='rejected'&&inferred.status==='rejected')throw shared.reason;
         result=shared.status==='fulfilled'?shared.value:{videos:[],hasMore:false};
         const inference=inferred.status==='fulfilled'?inferred.value:[];data=Array.isArray(inference)?inference:Array.isArray(inference?.videos)?inference.videos:[];
-      }else result=await fetchJSON(`/api/recommendations?${queryParams.toString()}`,{signal:inactiveRequests.current.signal});
+      }else result=await fetchJSON(`/api/recommendations?${queryParams.toString()}`,{signal:inactiveRequests.current.signal}).catch(error=>{if(pageNum!==1)throw error;return [];});
       if (currentReqId !== recommendationRequestIdRef.current) return;
-      if(userInfo||sharedRecommendations){personalHomeCursor.current=result.continuation||'';setHasMore(!!result.hasMore);}
+      if(userInfo||sharedRecommendations){personalHomeCursor.current=result?.continuation||'';setHasMore(!!result?.hasMore);}
 
       let publicData: Video[] = [];
       if (Array.isArray(result)) {
@@ -699,7 +698,7 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
       }
 
       // フォールバック: 初回読み込みで動画が取得できなかった場合は人気動画(trending)を表示
-      if (!userInfo && publicData.length === 0 && data.length === 0 && pageNum === 1) {
+      if (publicData.length === 0 && data.length === 0 && pageNum === 1) {
         try {
           const trendingData = await fetchJSON('/api/trending');
           if (Array.isArray(trendingData) && trendingData.length > 0) {
