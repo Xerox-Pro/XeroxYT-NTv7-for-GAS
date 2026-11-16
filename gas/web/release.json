@@ -1,9 +1,8 @@
 {
   "version": 1,
-  "entry": "app-BR6c9PHd.js",
-  "css": "style-BsKi9UiR.css",
+  "entry": "app-B2QZFBTv.js",
+  "css": "style-uCRW0rJC.css",
   "server": "server-runtime.json",
   "serverHash": "54270b58f519bd5d868efa8c5384dc297f0c98e0e3334ce79820a796eee22fb9",
-  "source": "0455c3a6cf3ee023e3829f857a5494e3264d3741",
-  "revision": "c6944fb3c05d397fa49f0fa027656de50943da25"
+  "source": "148210b5aeb5b2d18ff85972abd8c3968f6cfb7d"
 }
