@@ -113,8 +113,9 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
 
   // Auth state
   const [userInfo,setUserInfo]=useState<UserInfo|null>(()=>{try{if(localStorage.getItem('xerox_youtube_linked')==='1'){const user=JSON.parse(localStorage.getItem('xerox_user_info')||'null');if(typeof user?.name==='string')return user;}}catch{}return null;});
+  const [sharedRecommendations,setSharedRecommendations]=useState(()=>localStorage.getItem('xerox_shared_recommendations')==='1');
   const [googleStatusReady,setGoogleStatusReady]=useState(false);
-  const homeSnapshotScope=(siteAccount?.username||'guest')+(userInfo?':youtube':'');
+  const homeSnapshotScope=(siteAccount?.username||'guest')+(userInfo?':youtube':sharedRecommendations?':shared':'');
 
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -603,10 +604,10 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
     if(isSocial)return;
     let cancelled=false;youtubeGeneration.current++;
     setGoogleStatusReady(false);localStorage.removeItem('xerox_youtube_credentials');
-    fetchJSON('/api/auth/status',{signal:inactiveRequests.current.signal}).then(status=>{if(cancelled)return;if(status.connected&&status.user){localStorage.setItem('xerox_youtube_linked','1');setUserInfo(status.user);window.dispatchEvent(new Event('xerox-youtube-connection'));}else{localStorage.removeItem('xerox_youtube_linked');setUserInfo(null);}setGoogleStatusReady(true);}).catch(()=>{if(!cancelled){setAuthError('Google連携の状態を確認できませんでした。再読み込みしてください。');setError('連携状態を確認できないため、おすすめの読み込みを停止しています。再読み込みしてください。');setLoading(false);}});
+    fetchJSON('/api/auth/status',{signal:inactiveRequests.current.signal}).then(status=>{if(cancelled)return;const shared=!status.connected&&status.recommendationSource===true;setSharedRecommendations(shared);if(shared)localStorage.setItem('xerox_shared_recommendations','1');else localStorage.removeItem('xerox_shared_recommendations');if(status.connected&&status.user){localStorage.setItem('xerox_youtube_linked','1');setUserInfo(status.user);window.dispatchEvent(new Event('xerox-youtube-connection'));}else{localStorage.removeItem('xerox_youtube_linked');setUserInfo(null);}setGoogleStatusReady(true);}).catch(()=>{if(!cancelled){setAuthError('Google連携の状態を確認できませんでした。再読み込みしてください。');setError('連携状態を確認できないため、おすすめの読み込みを停止しています。再読み込みしてください。');setLoading(false);}});
     return()=>{cancelled=true;youtubeGeneration.current++;};
   },[siteAccount?.username,isSocial]);
-  useEffect(()=>{if(isSocial||!googleStatusReady)return;if(userInfo)void fetchYoutubeAuthData();setHomeShorts({category:'',videos:[]});setSelectedCategory('すべて');setPage(1);if(googleStatusReady&&location.pathname==='/')void fetchRecommendations(1,false);},[!!userInfo,googleStatusReady,isSocial]);
+  useEffect(()=>{if(isSocial||!googleStatusReady)return;if(userInfo)void fetchYoutubeAuthData();setHomeShorts({category:'',videos:[]});setSelectedCategory('すべて');setPage(1);if(googleStatusReady&&location.pathname==='/')void fetchRecommendations(1,false);},[!!userInfo,sharedRecommendations,googleStatusReady,isSocial]);
   const cancelGoogleLink=async()=>{isPollingRef.current=false;setIsPolling(false);setAuthFlow(null);setAuthError(null);try{await fetchJSON('/api/auth/cancel',{method:'POST'});}catch(error:any){setAuthError(error.message);}};
 
   const handleLogout = async () => {
@@ -657,7 +658,7 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
       const keywords = [...learnedTerms(false, 5), getHistoryKeywords()].filter(Boolean).join(' ');
       const historyIds = watchHistory.slice(0, 20).map(h => h.videoId).join(',');
       const userHashtags = JSON.stringify(localAI.getHashtagsMap());
-      let data = [];
+      let data:Video[] = [];
 
       // Every home visit starts a fresh provider request.
       const queryParams = new URLSearchParams({
@@ -668,9 +669,16 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
         refreshNonce: homeSeed.current,
       });
       if(pageNum===1)personalHomeCursor.current='';
-      const result = userInfo?await fetchJSON('/api/user/feed/home?continuation='+encodeURIComponent(personalHomeCursor.current),{signal:inactiveRequests.current.signal}):await fetchJSON(`/api/recommendations?${queryParams.toString()}`,{signal:inactiveRequests.current.signal});
+      let result:any;
+      if(userInfo)result=await fetchJSON('/api/user/feed/home?continuation='+encodeURIComponent(personalHomeCursor.current),{signal:inactiveRequests.current.signal});
+      else if(sharedRecommendations){
+        const [shared,inferred]=await Promise.allSettled([fetchJSON('/api/user/feed/home?continuation='+encodeURIComponent(personalHomeCursor.current),{signal:inactiveRequests.current.signal}),fetchJSON(`/api/recommendations?${queryParams.toString()}`,{signal:inactiveRequests.current.signal})]);
+        if(shared.status==='rejected'&&inferred.status==='rejected')throw shared.reason;
+        result=shared.status==='fulfilled'?shared.value:{videos:[],hasMore:false};
+        const inference=inferred.status==='fulfilled'?inferred.value:[];data=Array.isArray(inference)?inference:Array.isArray(inference?.videos)?inference.videos:[];
+      }else result=await fetchJSON(`/api/recommendations?${queryParams.toString()}`,{signal:inactiveRequests.current.signal});
       if (currentReqId !== recommendationRequestIdRef.current) return;
-      if(userInfo){personalHomeCursor.current=result.continuation||'';setHasMore(!!result.hasMore);}
+      if(userInfo||sharedRecommendations){personalHomeCursor.current=result.continuation||'';setHasMore(!!result.hasMore);}
 
       let publicData: Video[] = [];
       if (Array.isArray(result)) {
@@ -723,7 +731,7 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
       } else {
         setVideos(finalData);
       }
-      setHasMore(userInfo?!!result.hasMore:finalData.length>0);
+      setHasMore(userInfo||sharedRecommendations?!!result.hasMore||data.length>0:finalData.length>0);
       setPage(pageNum);
     } catch (err: any) {
       if (currentReqId !== recommendationRequestIdRef.current) return;
@@ -742,7 +750,7 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
   // Use the selected chip's actual YouTube home feed.
   const fetchHomeCategory = async (category: string, pageNum = 1, append = false) => {
     if(!googleStatusReady)return;
-    if(userInfo){await fetchRecommendations(pageNum,append);return;}
+    if(userInfo||sharedRecommendations){await fetchRecommendations(pageNum,append);return;}
     const requestId = ++recommendationRequestIdRef.current;
     if (append) setLoadingMore(true);
     else { setLoading(true); setVideos([]); }
