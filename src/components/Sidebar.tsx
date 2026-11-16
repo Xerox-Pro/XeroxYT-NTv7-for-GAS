@@ -2,7 +2,7 @@ import AppSwitcher from './AppSwitcher';
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'motion/react';
-import { Home, Zap, PlaySquare, Folder, History, ThumbsUp, Wrench } from 'lucide-react';
+import { Home, Zap, PlaySquare, Folder, History, ThumbsUp, Wrench, ShieldCheck } from 'lucide-react';
 import { ChannelSubscription } from '../types';
 import Avatar from './Avatar';
 
@@ -15,6 +15,8 @@ interface SidebarProps {
   onLibrary?: () => void;
   onHistory?: () => void;
   onDebugAPI?: () => void;
+  onSystemSettings?: () => void;
+  showSystemSettings?: boolean;
   subscriptions?: ChannelSubscription[];
   ownChannel?: ChannelSubscription;
   onSelectChannel?: (channelId: string) => void;
@@ -40,6 +42,8 @@ export default function Sidebar({
   onLibrary,
   onHistory,
   onDebugAPI,
+  onSystemSettings,
+  showSystemSettings = false,
   subscriptions = [],
   ownChannel, 
   onSelectChannel 
@@ -61,6 +65,8 @@ export default function Sidebar({
       onHistory();
     } else if (activeValue === 'debug' && onDebugAPI) {
       onDebugAPI();
+    } else if (activeValue === 'system' && onSystemSettings) {
+      onSystemSettings();
     }
 
     if (window.innerWidth < 1280 && onClose) {
@@ -150,6 +156,14 @@ export default function Sidebar({
                   APIデバッグ
                 </span>
               </Link>
+              {showSystemSettings && <Link
+                to="/system/settings"
+                onClick={() => handleClick('system')}
+                className={`w-full flex items-center gap-4 px-3 py-2 rounded-xl transition-colors ${currentView === 'system' ? 'bg-gray-100 text-black font-semibold' : 'text-gray-800 hover:bg-gray-100 font-normal'}`}
+              >
+                <ShieldCheck size={22} strokeWidth={currentView === 'system' ? 2.2 : 1.8} className="shrink-0 text-red-600" />
+                <span className="text-[14px] truncate">システム設定</span>
+              </Link>}
             </div>
 
             {/* セクション 3 (登録チャンネル) */}

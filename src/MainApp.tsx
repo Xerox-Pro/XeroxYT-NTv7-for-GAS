@@ -35,6 +35,7 @@ import MyPage from './components/MyPage';
 import { useDeviceProfile } from './lib/deviceProfile';
 import HistoryPage from './components/HistoryPage';
 import DebugAPI from './components/DebugAPI';
+import AdminPanel from './components/AdminPanel';
 import LicensePage from './components/LicensePage';
 import AddToPlaylistModal from './components/AddToPlaylistModal';
 import DetectedSearchHeader from './components/DetectedSearchHeader';
@@ -59,7 +60,7 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
   const location = useLocation();
   const [searchParams] = useSearchParams();
 
-  const [view, setView] = useState<'home' | 'search' | 'video' | 'shorts' | 'channel' | 'subscriptions' | 'library' | 'history' | 'debug' | 'license'>('home');
+  const [view, setView] = useState<'home' | 'search' | 'video' | 'shorts' | 'channel' | 'subscriptions' | 'library' | 'history' | 'debug' | 'system' | 'license'>('home');
   const siteAccount = useSiteAccount();
   const [searchQuery, setSearchQuery] = useState('');
   const [mobileSearchFilter,setMobileSearchFilter] = useState('すべて');
@@ -186,6 +187,9 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
       setView('history');
     } else if (path === '/debug/api') {
       setView('debug');
+    } else if (path === '/system/settings') {
+      if (siteAccount?.isMaster) setView('system');
+      else navigate('/', { replace: true });
     } else if (path === '/aistudio') {
       navigate('/', { replace: true });
     } else if (path === '/license') {
@@ -210,6 +214,8 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
       document.title = 'ライブラリ - XeroxYT-NTv7 for GAS';
     } else if (view === 'history') {
       document.title = '履歴 - XeroxYT-NTv7 for GAS';
+    } else if (view === 'system') {
+      document.title = 'システム設定 - XeroxYT-NTv7 for GAS';
     } else if (view === 'license') {
       document.title = 'ライセンス & 製作者クレジット - XeroxYT-NTv7 for GAS';
     }
@@ -1081,6 +1087,8 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
           ownChannel={userInfo?.sub?.startsWith('UC')?{id:userInfo.sub,title:userInfo.name,avatar:userInfo.picture}:undefined}
           onSelectChannel={handleSelectChannel}
           onDebugAPI={() => navigate('/debug/api')}
+          onSystemSettings={() => navigate('/system/settings')}
+          showSystemSettings={!!siteAccount?.isMaster}
         />}
 
         {/* メインコンテンツビュー */}
@@ -1223,6 +1231,13 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
             )
           ) : view === 'debug' ? (
             <DebugAPI />
+          ) : view === 'system' ? (
+            <div className="min-h-screen bg-gray-50 px-4 py-6 sm:px-6 lg:px-8">
+              <div className="mx-auto max-w-[1500px]">
+                <header className="mb-6"><h1 className="text-2xl font-bold text-gray-900">システム設定</h1><p className="mt-1 text-sm text-gray-500">アカウント管理と推薦用Googleアカウントを設定します。</p></header>
+                <AdminPanel />
+              </div>
+            </div>
           ) : view === 'license' ? (
             <LicensePage onBack={handleGoHome} />
           ) : loading ? (
