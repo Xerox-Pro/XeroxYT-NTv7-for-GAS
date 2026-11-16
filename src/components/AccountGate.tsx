@@ -46,6 +46,8 @@ async function api(path: string, method = 'GET', body?: unknown) {
 }
 
 export default function AccountGate({ children }: { children: ReactNode }) {
+  const [timeoutUntil,setTimeoutUntil]=useState(0);
+  useEffect(()=>{const listener=(event:Event)=>setTimeoutUntil(Number((event as CustomEvent).detail?.suspendedUntil)||Date.now()+600000);window.addEventListener('xerox-account-timeout',listener);const timer=setInterval(()=>setTimeoutUntil(value=>value&&value<=Date.now()?0:value),1000);return()=>{window.removeEventListener('xerox-account-timeout',listener);clearInterval(timer);};},[]);
   const [initialBan] = useState<BanRecord | null>(()=>read<BanRecord|null>(BAN_LOCK_KEY,null));
   const [cachedUser] = useState<User | null>(() => { const hint = read<User | null>(SESSION_HINT_KEY, null); return hint && typeof hint.id === 'string' && typeof hint.username === 'string' && localStorage.getItem('xerox_last_account_id') === hint.id ? hint : null; });
   const [user, setUser] = useState<User | null>(cachedUser);
@@ -177,6 +179,7 @@ export default function AccountGate({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('xerox-history-change', changed);
   }, []);
 
+  if(timeoutUntil>Date.now()&&phase!=='banned')return <main className="min-h-screen bg-gray-950 text-white flex items-center justify-center p-5"><section role="alert" className="max-w-md rounded-3xl border border-amber-700 bg-gray-900 p-8 text-center"><h1 className="text-2xl font-bold">警告：一時的に利用を停止しています</h1><p className="mt-4 text-sm">過剰なリクエストを検出しました。{new Date(timeoutUntil).toLocaleTimeString('ja-JP')}までお待ちください。解除後に再発するとBANされます。</p></section></main>;
   async function submit(e: FormEvent) {
     e.preventDefault(); setMessage('');
     if (register && password !== confirm) { setMessage('パスワードが一致しません。'); return; }
