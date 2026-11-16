@@ -1,9 +1,8 @@
 {
   "version": 1,
-  "entry": "app-CyHkX_9H.js",
-  "css": "style-pZMnRRNe.css",
+  "entry": "app-DjGzErfd.js",
+  "css": "style-B91Wi2Kt.css",
   "server": "server-runtime.json",
   "serverHash": "54270b58f519bd5d868efa8c5384dc297f0c98e0e3334ce79820a796eee22fb9",
-  "source": "840b203e9f1e1d23eb1bf48f3e776c573fedd2c0",
-  "revision": "058697fd93892a0711b509b6d3f9e4693b5c118f"
+  "source": "3b0da9e6c6366dda7cc12655a306e8670ee0e3fe"
 }
