@@ -3,7 +3,7 @@ import {createPortal} from 'react-dom';
 import {useLocation,useNavigate} from 'react-router-dom';
 import {ChevronDown,Check,X} from 'lucide-react';
 import {services,serviceForPath} from '../social/services.mjs';
-const logos={youtube:'/app-icons/youtube.jpeg',instagram:'/app-icons/instagram.png',tiktok:'/app-icons/tiktok.png'};
+const logos={youtube:'/app-icons/youtube.png',instagram:'/app-icons/instagram.png',tiktok:'/app-icons/tiktok.png'};
 const DOUBLE_TAP_MS=500;
 export default function AppSwitcher({compact=false}:{compact?:boolean}){
  const location=useLocation(),navigate=useNavigate(),active=serviceForPath(location.pathname);
