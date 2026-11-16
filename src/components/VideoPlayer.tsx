@@ -1,4 +1,5 @@
 import CompactError from './CompactError';
+import VideoDownload from './VideoDownload';
 import {useDeviceProfile} from '../lib/deviceProfile';
 import {useYouTubeLinked} from '../lib/youtubeConnection';
 import PlaybackSettings from './PlaybackSettings';
@@ -1377,6 +1378,7 @@ export default function VideoPlayer({
                 </motion.button>
               )}
 
+              <VideoDownload videoId={videoId}/>
               <motion.button
                 aria-label="共有"
                 title="共有"
