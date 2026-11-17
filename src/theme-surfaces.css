@@ -17,3 +17,5 @@ html[data-theme=dark] .effect-presets button[aria-pressed=true]{background:#f1f1
 html[data-theme=dark] :is(.sheet-drag-handle,.toggle-track){background:#626262!important}
 html[data-theme=dark] .playback-toggle[aria-checked=true] .toggle-track{background:#82b4ff!important}
 html[data-theme=dark] .playback-range input{accent-color:#82b4ff}
+html[data-theme=dark] .playback-settings-trigger{background:#272727;color:#f1f1f1;border-color:#404040}
+html[data-theme=dark] .playback-settings-trigger:hover{background:#393939}
