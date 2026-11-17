@@ -17,7 +17,7 @@ const dom=new JSDOM('<!doctype html><div id="root"></div>',{
  runScripts:'outside-only',pretendToBeVisual:true,virtualConsole,
 });
 const w=dom.window;
-const user={id:'bundle-test',username:'testuser'};
+const user={id:'bundle-test',username:'testuser',termsAccepted:true};
 if(signedIn){
  w.localStorage.setItem('xerox_last_account_id',user.id);
  w.localStorage.setItem('xerox_site_session_hint',JSON.stringify(user));
@@ -124,6 +124,7 @@ try{
  w.eval(js);
  await until(()=>w.document.querySelector('.messages-page'));
  assert.equal(w.localStorage.getItem('xerox_last_account_id'),beforeUpdate);
+ assert.ok(!calls.some(call=>call.path==='/api/account/terms'),'Accepted accounts must not fetch the terms on startup or reload');
  assert.equal(w.location.hash,'#/messages');
  assert.equal(w.document.querySelector('input[autocomplete="username"]'),null);
  assert.ok(calls.every(call=>call.path.startsWith('/api/')&&/^[a-f0-9]{64}$/.test(call.session)));
