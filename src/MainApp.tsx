@@ -1268,7 +1268,7 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
 
           ) : (
             /* ホーム ＆ 検索結果 グリッド ＆ 無限スクロール */
-            <div data-search-filter={phoneLayout?mobileSearchFilter:'すべて'} className={`results-content ${view==='search'?'search-results-content':''} p-4 sm:p-6 lg:p-8 max-w-[1600px] mx-auto bg-white min-h-screen`}>
+            <div data-search-filter={phoneLayout?mobileSearchFilter:'すべて'} className={`video-grid-region results-content ${view==='search'?'search-results-content':''} p-4 sm:p-6 lg:p-8 max-w-[1600px] mx-auto bg-white min-h-screen`}>
               {view === 'search' && searchQuery && (
                 <>
                   <DetectedSearchHeader
