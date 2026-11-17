@@ -15,6 +15,21 @@ test('gravity follows device tilt and display rotation',()=>{
  assert.ok(tiltGravity(90,0).y>0.99);assert.ok(tiltGravity(0,90).x>0.99);
  assert.ok(tiltGravity(0,90,90).y<-.99);
 });
+test('spin rotates visible pieces in place and stops when reduced motion is selected',()=>{
+ const f=fixture();
+ const runtime=startVisualPhysics(f.root,'spin');
+ const [piece]=runtime.getPieces();
+ f.step(16);
+ const angle=piece.el.style.rotate;
+ f.step(100);
+ assert.notEqual(piece.el.style.rotate,angle);
+ assert.equal(piece.el.style.translate,'');
+ f.w.document.documentElement.dataset.prefReduceMotion='true';
+ f.step(120);
+ assert.equal(piece.el.style.rotate,'');
+ runtime.destroy();
+ f.dom.window.close();
+});
 test('rigid bodies fall while existing buttons work; cleanup restores styles and nodes',()=>{
  const f=fixture(),button=f.w.document.getElementById('play');let clicks=0;button.addEventListener('click',()=>clicks++);
  const originalParent=button.parentElement;originalParent.style.rotate='2deg';const runtime=startVisualPhysics(f.root,'chaos');

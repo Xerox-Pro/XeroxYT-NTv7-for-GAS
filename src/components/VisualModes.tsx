@@ -1,9 +1,9 @@
 import {useEffect,useRef,useState} from 'react';
 import {useSiteAccount} from './AccountGate';
 
-type Mode='off'|'chaos'|'chaos2'|'jelly';
+type Mode='off'|'chaos'|'chaos2'|'jelly'|'spin';
 type Controls={shake:()=>void;reset:()=>void;destroy:()=>void};
-const titles={off:'通常',chaos:'カオス',chaos2:'カオス2',jelly:'ゼリー'};
+const titles={off:'通常',chaos:'カオス',chaos2:'カオス2',jelly:'ゼリー',spin:'スピン'};
 export default function VisualModes(){
  const username=useSiteAccount()?.username;
  const [mode,setMode]=useState<Mode>('off'),[sensorMessage,setSensorMessage]=useState('');
@@ -12,7 +12,7 @@ export default function VisualModes(){
  const requiresPermission=[(window as any).DeviceOrientationEvent,(window as any).DeviceMotionEvent].some(type=>typeof type?.requestPermission==='function');
  useEffect(()=>{
   setMode('off');let disposed=false,busy=false;const abort=new AbortController();
-  const check=async()=>{if(busy||disposed||document.hidden)return;busy=true;try{const response=await fetch('/api/account/visual-mode',{credentials:'same-origin',cache:'no-store',signal:abort.signal});if(!response.ok)return;const data=await response.json();if(!disposed)setMode(['chaos','chaos2','jelly'].includes(data.mode)?data.mode:'off');}catch{}finally{busy=false;}};
+  const check=async()=>{if(busy||disposed||document.hidden)return;busy=true;try{const response=await fetch('/api/account/visual-mode',{credentials:'same-origin',cache:'no-store',signal:abort.signal});if(!response.ok)return;const data=await response.json();if(!disposed)setMode(['chaos','chaos2','jelly','spin'].includes(data.mode)?data.mode:'off');}catch{}finally{busy=false;}};
   void check();const timer=setInterval(()=>void check(),30000);const refresh=()=>void check();window.addEventListener('focus',refresh);window.addEventListener('xerox-visual-mode-updated',refresh);document.addEventListener('visibilitychange',refresh);
   return()=>{disposed=true;abort.abort();clearInterval(timer);window.removeEventListener('focus',refresh);window.removeEventListener('xerox-visual-mode-updated',refresh);document.removeEventListener('visibilitychange',refresh);};
  },[username]);
@@ -29,6 +29,6 @@ export default function VisualModes(){
    setSensorGranted(results.some(value=>value==='granted'));setSensorMessage(results.some(value=>value==='granted')?'センサーを有効にしました。端末を傾けたり、軽く振ってください。':'センサーの利用が許可されませんでした。「揺らす」を使えます。');
   }catch{setSensorMessage('ブラウザまたはGASの制限によりセンサーを使えません。「揺らす」を使えます。');}
  };
- if(mode==='off'||mode==='jelly'||!requiresPermission||sensorGranted)return null;
+ if(mode==='off'||mode==='jelly'||mode==='spin'||!requiresPermission||sensorGranted)return null;
  return <aside data-effect-controls className="fixed bottom-3 right-3 z-[290] max-w-xs rounded-xl bg-white p-2 text-xs shadow"><button onClick={()=>void enableSensors()}>傾き操作を許可</button>{sensorMessage&&<p role="status">{sensorMessage}</p>}</aside>;
 }
