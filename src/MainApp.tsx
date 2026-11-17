@@ -36,6 +36,7 @@ import { useDeviceProfile } from './lib/deviceProfile';
 import HistoryPage from './components/HistoryPage';
 import DebugAPI from './components/DebugAPI';
 import AdminPanel from './components/AdminPanel';
+import DirectMessages from './components/DirectMessages';
 import LicensePage from './components/LicensePage';
 import AddToPlaylistModal from './components/AddToPlaylistModal';
 import DetectedSearchHeader from './components/DetectedSearchHeader';
@@ -60,8 +61,9 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
   const location = useLocation();
   const [searchParams] = useSearchParams();
 
-  const [view, setView] = useState<'home' | 'search' | 'video' | 'shorts' | 'channel' | 'subscriptions' | 'library' | 'history' | 'debug' | 'system' | 'license'>('home');
+  const [view, setView] = useState<'home' | 'search' | 'video' | 'shorts' | 'channel' | 'subscriptions' | 'library' | 'history' | 'debug' | 'system' | 'messages' | 'license'>('home');
   const siteAccount = useSiteAccount();
+  useEffect(()=>{if(!siteAccount?.isMaster)return;const open=(event:Event)=>{const target=(event as CustomEvent).detail?.target;if(typeof target==='string'){sessionStorage.setItem('xerox_dm_compose',target);navigate('/messages');}};window.addEventListener('xerox-open-dm',open);return()=>window.removeEventListener('xerox-open-dm',open);},[siteAccount?.isMaster,navigate]);
   const [searchQuery, setSearchQuery] = useState('');
   const [mobileSearchFilter,setMobileSearchFilter] = useState('すべて');
   const [phoneLayout,setPhoneLayout] = useState(()=>window.innerWidth<=640);
@@ -183,6 +185,8 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
       setView('subscriptions');
     } else if (path === '/feed/library') {
       setView('library');
+    } else if (path === '/messages') {
+      setView('messages');
     } else if (path === '/feed/history') {
       setView('history');
     } else if (path === '/debug/api') {
@@ -610,7 +614,7 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
     if(isSocial)return;
     let cancelled=false;youtubeGeneration.current++;
     setGoogleStatusReady(false);localStorage.removeItem('xerox_youtube_credentials');
-    fetchJSON('/api/auth/status',{signal:inactiveRequests.current.signal}).then(status=>{if(cancelled)return;const shared=!status.connected&&status.recommendationSource===true;setSharedRecommendations(shared);if(shared)localStorage.setItem('xerox_shared_recommendations','1');else localStorage.removeItem('xerox_shared_recommendations');if(status.connected&&status.user){localStorage.setItem('xerox_youtube_linked','1');setUserInfo(status.user);window.dispatchEvent(new Event('xerox-youtube-connection'));}else{localStorage.removeItem('xerox_youtube_linked');setUserInfo(null);}setGoogleStatusReady(true);}).catch(()=>{if(!cancelled){setAuthError('Google連携の状態を確認できませんでした。再読み込みしてください。');setError('連携状態を確認できないため、おすすめの読み込みを停止しています。再読み込みしてください。');setLoading(false);}});
+    fetchJSON('/api/auth/status',{signal:inactiveRequests.current.signal}).then(status=>{if(cancelled)return;const shared=!status.connected&&status.recommendationSource===true;setSharedRecommendations(shared);if(shared)localStorage.setItem('xerox_shared_recommendations','1');else localStorage.removeItem('xerox_shared_recommendations');if(status.connected&&status.user){localStorage.setItem('xerox_youtube_linked','1');setUserInfo(status.user);window.dispatchEvent(new Event('xerox-youtube-connection'));}else{localStorage.removeItem('xerox_youtube_linked');setUserInfo(null);}setGoogleStatusReady(true);}).catch(()=>{if(!cancelled){setAuthError('Google連携の状態を確認できませんでした。再読み込みしてください。');setGoogleStatusReady(true);}});
     return()=>{cancelled=true;youtubeGeneration.current++;};
   },[siteAccount?.username,isSocial]);
   useEffect(()=>{if(isSocial||!googleStatusReady)return;if(userInfo)void fetchYoutubeAuthData();setHomeShorts({category:'',videos:[]});setSelectedCategory('すべて');setPage(1);if(googleStatusReady&&location.pathname==='/')void fetchRecommendations(1,false);},[!!userInfo,sharedRecommendations,googleStatusReady,isSocial]);
@@ -676,7 +680,7 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
       });
       if(pageNum===1)personalHomeCursor.current='';
       let result:any;
-      if(userInfo)result=await fetchJSON('/api/user/feed/home?continuation='+encodeURIComponent(personalHomeCursor.current),{signal:inactiveRequests.current.signal}).catch(()=>fetchJSON(`/api/recommendations?${queryParams.toString()}`,{signal:inactiveRequests.current.signal}));
+      if(userInfo)result=await fetchJSON('/api/user/feed/home?continuation='+encodeURIComponent(personalHomeCursor.current),{signal:inactiveRequests.current.signal}).catch(()=>fetchJSON(`/api/recommendations?${queryParams.toString()}`,{signal:inactiveRequests.current.signal}).catch(error=>{if(pageNum!==1)throw error;return [];}));
       else if(sharedRecommendations){
         const [shared,inferred]=await Promise.allSettled([fetchJSON('/api/user/feed/home?continuation='+encodeURIComponent(personalHomeCursor.current),{signal:inactiveRequests.current.signal}),fetchJSON(`/api/recommendations?${queryParams.toString()}`,{signal:inactiveRequests.current.signal})]);
         result=shared.status==='fulfilled'?shared.value:{videos:[],hasMore:false};
@@ -1230,6 +1234,8 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
             )
           ) : view === 'debug' ? (
             <DebugAPI />
+          ) : view === 'messages' ? (
+            <DirectMessages/>
           ) : view === 'system' ? (
             <div className="min-h-screen bg-gray-50 px-4 py-6 sm:px-6 lg:px-8">
               <div className="mx-auto max-w-[1500px]">

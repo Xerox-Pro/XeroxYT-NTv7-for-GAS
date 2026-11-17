@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, createContext, useContext, type ReactNode, type FormEvent } from 'react';
 import VisualModes from './VisualModes';
 import DirectMessages from './DirectMessages';
+import MessageNotifications from './MessageNotifications';
 
 type Item = { videoId: string; timestamp?: number; [key: string]: unknown };
 type User = { id: string; username: string; admin?: boolean };
@@ -51,7 +52,7 @@ export default function AccountGate({ children }: { children: ReactNode }) {
   const [timeoutUntil,setTimeoutUntil]=useState(0);
   useEffect(()=>{const listener=(event:Event)=>setTimeoutUntil(Number((event as CustomEvent).detail?.suspendedUntil)||Date.now()+600000);window.addEventListener('xerox-account-timeout',listener);const timer=setInterval(()=>setTimeoutUntil(value=>value&&value<=Date.now()?0:value),1000);return()=>{window.removeEventListener('xerox-account-timeout',listener);clearInterval(timer);};},[]);
   const [initialBan] = useState<BanRecord | null>(()=>read<BanRecord|null>(BAN_LOCK_KEY,null));
-  const [cachedUser] = useState<User | null>(() => { const hint = read<User | null>(SESSION_HINT_KEY, null); return hint && typeof hint.id === 'string' && typeof hint.username === 'string' && localStorage.getItem('xerox_last_account_id') === hint.id ? hint : null; });
+  const [cachedUser] = useState<User | null>(() => { const handoff=(window as any).__XEROX_ACCOUNT_HANDOFF__;if(handoff&&Date.now()-handoff.savedAt<30000&&handoff.user?.id&&handoff.user?.username)return handoff.user;const hint = read<User | null>(SESSION_HINT_KEY, null); return hint && typeof hint.id === 'string' && typeof hint.username === 'string' && localStorage.getItem('xerox_last_account_id') === hint.id ? hint : null; });
   const [user, setUser] = useState<User | null>(cachedUser);
   const [phase, setPhase] = useState<'checking' | 'login' | 'loading' | 'ready' | 'error' | 'banned'>(initialBan?'banned':cachedUser ? 'ready' : 'login');
   const [banRecord,setBanRecord]=useState<BanRecord|null>(initialBan);
@@ -69,6 +70,7 @@ export default function AccountGate({ children }: { children: ReactNode }) {
   const serverAuthenticated=useRef(false);
   const authEpoch = useRef(0);
   const sync = useRef<() => Promise<void>>(async () => {});
+  useEffect(()=>{const prepare=async()=>{if(cache.current.dirty){await sync.current();if(cache.current.dirty)return false;}const current=active.current;if(current)(window as any).__XEROX_ACCOUNT_HANDOFF__={user:current,savedAt:Date.now()};return true;};(window as any).__XEROX_GAS_BEFORE_UPDATE__=prepare;return()=>{if((window as any).__XEROX_GAS_BEFORE_UPDATE__===prepare)delete (window as any).__XEROX_GAS_BEFORE_UPDATE__;};},[]);
   const lockBanned=useCallback(()=>{
     const current=active.current||cachedUser;
     const record={...(current?.id?{userId:current.id}:{}),...(current?.username?{username:current.username}:{}),detectedAt:Date.now()};
@@ -199,7 +201,7 @@ export default function AccountGate({ children }: { children: ReactNode }) {
     try { authEpoch.current++; await api('/logout', 'POST', {});serverAuthenticated.current=false; active.current = null; localStorage.removeItem(SESSION_HINT_KEY); setUser(null); setPhase('login'); setMessage(''); }
     catch { setMessage('ログアウトできませんでした。'); }
   }
-  if (phase === 'ready' && user) return <AccountContext.Provider value={{ username: user.username, ...(user.admin?{isMaster:true}:{}), logout }}><VisualModes/><DirectMessages/>{children}{message && <div role="status" className="fixed top-16 right-4 z-[200] bg-gray-900 text-white text-xs p-3 rounded-xl max-w-xs shadow-lg">{message}{!serverAuthenticated.current&&<button type="button" className="block mt-2 underline" onClick={()=>{setPassword('');setConfirm('');setPhase('login');setMessage('端末内のデータを保持したまま再接続します。');}}>再ログインして同期を再開</button>}</div>}</AccountContext.Provider>;
+  if (phase === 'ready' && user) return <AccountContext.Provider value={{ username: user.username, ...(user.admin?{isMaster:true}:{}), logout }}><VisualModes/><MessageNotifications/>{children}{message && <div role="status" className="fixed top-16 right-4 z-[200] bg-gray-900 text-white text-xs p-3 rounded-xl max-w-xs shadow-lg">{message}{!serverAuthenticated.current&&<button type="button" className="block mt-2 underline" onClick={()=>{setPassword('');setConfirm('');setPhase('login');setMessage('端末内のデータを保持したまま再接続します。');}}>再ログインして同期を再開</button>}</div>}</AccountContext.Provider>;
 
   if(phase==='banned')return <><DirectMessages appealOnly/><main className="min-h-screen bg-gray-950 text-white flex items-center justify-center p-5"><section className="w-full max-w-md rounded-3xl border border-red-900 bg-gray-900 p-8 text-center shadow-2xl" role="alert"><div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-red-950 text-3xl" aria-hidden="true">!</div><h1 className="mt-5 text-2xl font-bold">このアカウントはBANされています</h1><p className="mt-3 text-sm leading-6 text-gray-300">この端末では、新しいアカウントの作成、ログアウト、アカウント切り替えなどの操作はできません。</p>{banRecord?.username&&<p className="mt-4 text-xs text-gray-500">対象アカウント: @{banRecord.username}</p>}<p className="mt-5 text-xs text-gray-500">BANが解除された場合は、この画面を開いたままにするか、しばらくしてから再読み込みしてください。</p></section></main></>;
 

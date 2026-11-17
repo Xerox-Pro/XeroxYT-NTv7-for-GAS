@@ -1,8 +1,8 @@
 import AppSwitcher from './AppSwitcher';
-import React from 'react';
+import React,{useEffect,useState} from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'motion/react';
-import { Home, Zap, PlaySquare, Folder, History, ThumbsUp, Wrench, ShieldCheck } from 'lucide-react';
+import { Home, Zap, PlaySquare, Folder, History, ThumbsUp, Wrench, ShieldCheck, MessageCircle } from 'lucide-react';
 import { ChannelSubscription } from '../types';
 import Avatar from './Avatar';
 
@@ -30,6 +30,7 @@ const section1 = [
 
 const section2 = [
   { icon: Folder, label: 'ライブラリ', activeValue: 'library', path: '/feed/library' },
+  { icon: MessageCircle, label: 'DM', activeValue: 'messages', path: '/messages' },
   { icon: History, label: '履歴', activeValue: 'history', path: '/feed/history' },
 ];
 
@@ -48,6 +49,8 @@ export default function Sidebar({
   ownChannel, 
   onSelectChannel 
 }: SidebarProps) {
+  const [unread,setUnread]=useState(0);
+  useEffect(()=>{const changed=(event:Event)=>setUnread(Number((event as CustomEvent).detail)||0);window.addEventListener('xerox-dm-unread',changed);return()=>window.removeEventListener('xerox-dm-unread',changed);},[]);
   
   const handleClick = (activeValue: string) => {
     if (activeValue === 'toggle' && onClose) {
@@ -96,7 +99,7 @@ export default function Sidebar({
             className={`shrink-0`} 
           />
           <span className={isOpen ? 'text-[14px] truncate' : 'text-[10px] text-center truncate w-full'}>
-            {link.label}
+            {link.label}{link.activeValue==='messages'&&unread>0&&<span className="ml-1 rounded-full bg-purple-600 px-1.5 text-[10px] text-white">{unread>99?'99+':unread}</span>}
           </span>
         </Link>
       </motion.div>
@@ -211,6 +214,12 @@ export default function Sidebar({
                 <Folder size={20} strokeWidth={1.8} />
                 <span className="text-[10px] text-center truncate w-full">ライブラリ</span>
               </Link>
+              <Link
+                to="/messages"
+                onClick={() => handleClick('messages')}
+                className="w-full flex flex-col items-center justify-center py-2.5 px-1 rounded-lg gap-1 text-gray-800 hover:bg-gray-100"
+                title="DM"
+              ><MessageCircle size={20}/><span className="text-[10px] text-center w-full">DM</span></Link>
               <Link
                 to="/feed/history"
                 onClick={() => handleClick('history')}

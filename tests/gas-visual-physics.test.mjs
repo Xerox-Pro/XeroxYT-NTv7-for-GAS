@@ -35,3 +35,7 @@ test('newly loaded parts are added without resetting existing rigid bodies',asyn
  const body=runtime.getPieces()[0].body,y=body.position.y;const button=f.w.document.createElement('button');button.textContent='new';button.getBoundingClientRect=()=>({left:300,top:40,width:80,height:30,right:380,bottom:70});f.root.appendChild(button);
  await new Promise(resolve=>setTimeout(resolve,300));assert.equal(runtime.getPieces()[0].body,body);assert.equal(body.position.y,y);assert.equal(runtime.getPieces().length,3);runtime.destroy();f.dom.window.close();
 });
+test('chaos adds an impulse every ten seconds without resetting positions',()=>{
+ const f=fixture();let callback,period,cleared=false;f.w.setInterval=(fn,ms)=>{callback=fn;period=ms;return 1;};f.w.clearInterval=()=>{cleared=true;};
+ const runtime=startVisualPhysics(f.root,'chaos'),body=runtime.getPieces()[0].body,position={...body.position};assert.equal(period,10000);callback();assert.deepEqual(body.position,position);assert.ok(Math.abs(body.force.x)+Math.abs(body.force.y)>0);runtime.destroy();assert.ok(cleared);f.dom.window.close();
+});

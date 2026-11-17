@@ -90,6 +90,15 @@ try{
  assert.ok(w.document.body.textContent.includes('履歴をJSONで書き出す'));
  assert.equal(w.location.pathname,'/userCodeAppPanel');
  assert.ok(w.localStorage.getItem('xerox_site_session_hint'));
+ w.location.hash='/messages';
+ await until(()=>w.document.querySelector('.messages-page'));
+ assert.equal(w.document.querySelector('.messages-page').getAttribute('role'),null,'DM must be a page, not a floating dialog');
+ const beforeUpdate=w.localStorage.getItem('xerox_last_account_id');
+ await w.__XEROX_GAS_BEFORE_UPDATE__();
+ w.eval(js);
+ await until(()=>w.document.querySelector('.messages-page'));
+ assert.equal(w.localStorage.getItem('xerox_last_account_id'),beforeUpdate);
+ assert.equal(w.location.hash,'#/messages');
  assert.equal(w.document.querySelector('input[autocomplete="username"]'),null);
  assert.ok(calls.every(call=>call.path.startsWith('/api/')&&/^[a-f0-9]{64}$/.test(call.session)));
  assert.equal(failures.length,0,failures.map(error=>error.message).join('\n'));

@@ -36,7 +36,8 @@ export function installBridge(){
   if(body===undefined&&!['GET','HEAD'].includes(method))body=await request.text();
   if(body!=null&&typeof body!=='string')throw new Error('GAS版ではJSON形式で送信してください。');
   if(!['GET','HEAD'].includes(method)){if(!headers['content-type'])headers['content-type']='application/json';if(!body)body='{}';}
-  const result=await dispatch({session:token,path:url.pathname+url.search,method,headers,body:body??null},signal);
+  window.__XEROX_GAS_RPC_RUNNING__=(window.__XEROX_GAS_RPC_RUNNING__||0)+1;
+  let result;try{result=await dispatch({session:token,path:url.pathname+url.search,method,headers,body:body??null},signal);}finally{window.__XEROX_GAS_RPC_RUNNING__=Math.max(0,(window.__XEROX_GAS_RPC_RUNNING__||1)-1);}
   if(!result||!Number.isInteger(result.status))throw new Error('GASからの応答が不正です。');
   if(result.status===403||result.status===429){try{const data=JSON.parse(result.body);if(data.code==='ACCOUNT_BANNED')window.dispatchEvent(new CustomEvent('xerox-account-banned'));if(data.code==='ACCOUNT_TIMEOUT')window.dispatchEvent(new CustomEvent('xerox-account-timeout',{detail:data}));}catch{}}
   return new Response([204,205,304].includes(result.status)?null:result.body,{status:result.status,headers:result.headers});
