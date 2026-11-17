@@ -5,5 +5,7 @@
   "server": "server-runtime.json",
   "serverHash": "d806b7925a5a4d2cdf7b1b1f3028744e2ab65128763bba53ac93a06fcd825ad6",
   "builtAt": 1794904209579,
-  "source": "3c767978aa495c5cd6d84e8b675dce83728e36d1"
+  "source": "3c767978aa495c5cd6d84e8b675dce83728e36d1",
+  "revision": "6f948c40a04f102a6453867091f934342006528f",
+  "publishedAt": 1794904213366
 }
