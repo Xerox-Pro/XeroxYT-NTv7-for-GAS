@@ -3,7 +3,7 @@ import Matter from 'matter-js';
 const {Engine,Bodies,Body,Composite,Vector}=Matter;
 const selector='[data-physics-piece],button,a,input,select,textarea,img,iframe,video';
 const excluded='[data-effect-controls],[aria-label="システム管理"],[role="dialog"],dialog,[role="alert"],[role="status"]';
-const properties=['translate','rotate','scale','border-radius','will-change','transform-origin'];
+const properties=['translate','rotate','scale','border-radius','will-change','transform-origin','filter','box-shadow'];
 const clamp=(n,min,max)=>Math.max(min,Math.min(max,n));
 
 export function tiltGravity(beta,gamma,angle=0){
@@ -16,6 +16,17 @@ export function tiltGravity(beta,gamma,angle=0){
 export function startVisualPhysics(root,mode){
  const win=root.ownerDocument.defaultView,doc=root.ownerDocument;
  const engine=Engine.create({enableSleeping:false});
+ const ns='http://www.w3.org/2000/svg',svg=doc.createElementNS(ns,'svg');svg.setAttribute('width','0');svg.setAttribute('height','0');svg.style.position='absolute';svg.style.pointerEvents='none';svg.setAttribute('aria-hidden','true');const defs=doc.createElementNS(ns,'defs');svg.appendChild(defs);if(mode==='jelly')doc.body.appendChild(svg);
+ const jellyFilter=index=>{
+  const filter=doc.createElementNS(ns,'filter'),id='jelly-'+Math.random().toString(36).slice(2)+'-'+index;filter.id=id;for(const [key,value]of Object.entries({x:'-60%',y:'-80%',width:'220%',height:'260%','color-interpolation-filters':'sRGB'}))filter.setAttribute(key,value);
+  const node=(name,attrs,parent=filter)=>{const element=doc.createElementNS(ns,name);for(const [key,value]of Object.entries(attrs))element.setAttribute(key,String(value));parent.appendChild(element);return element;};
+  node('feTurbulence',{type:'fractalNoise',baseFrequency:'0.012 0.018',numOctaves:2,seed:index+1,result:'noise'});
+  const displacement=node('feDisplacementMap',{in:'SourceGraphic',in2:'noise',scale:8,xChannelSelector:'R',yChannelSelector:'G',result:'gel'});
+  node('feGaussianBlur',{in:'SourceAlpha',stdDeviation:4,result:'bevel'});
+  const lighting=node('feSpecularLighting',{in:'bevel',surfaceScale:12,specularConstant:0.8,specularExponent:22,'lighting-color':'#ffffff',result:'shine'});node('fePointLight',{x:-80,y:-120,z:180},lighting);
+  node('feComposite',{in:'shine',in2:'gel',operator:'in',result:'highlight'});node('feComposite',{in:'gel',in2:'highlight',operator:'arithmetic',k1:0,k2:1,k3:0.65,k4:0,result:'lit'});
+  node('feDropShadow',{in:'lit',dx:3,dy:12,stdDeviation:6,'flood-color':'#33205e','flood-opacity':0.3});defs.appendChild(filter);return {id,displacement};
+ };
  let pieces=[],walls=[],frame=0,last=0,scanTimer=0,disposed=false,gravity={x:0,y:1};
  const now=()=>win.performance.now();
  const restore=piece=>{for(const [name,value,priority]of piece.saved){if(value)piece.el.style.setProperty(name,value,priority);else piece.el.style.removeProperty(name);}};
@@ -30,14 +41,16 @@ export function startVisualPhysics(root,mode){
   if(force)pieces.forEach(restore);
   const nodes=collect();
   if(!force&&nodes.length===pieces.length&&nodes.every((el,i)=>el===pieces[i].el))return;
-  pieces.forEach(restore);Composite.clear(engine.world,false);pieces=[];
+  pieces.forEach(restore);Composite.clear(engine.world,false);pieces=[];defs.replaceChildren();
   const width=win.innerWidth,height=win.innerHeight,thickness=200;
   walls=[Bodies.rectangle(width/2,height+thickness/2,width+400,thickness,{isStatic:true}),Bodies.rectangle(-thickness/2,height/2,thickness,height+400,{isStatic:true}),Bodies.rectangle(width+thickness/2,height/2,thickness,height+400,{isStatic:true}),Bodies.rectangle(width/2,-thickness/2,width+400,thickness,{isStatic:true})];
   Composite.add(engine.world,walls);
   for(const el of nodes){
    const r=el.getBoundingClientRect(),x=r.left+r.width/2,y=r.top+r.height/2;
    const body=Bodies.rectangle(clamp(x,r.width/2,width-r.width/2),clamp(y,r.height/2,height-r.height/2),r.width,r.height,{restitution:mode==='chaos2'?0.88:0.24,friction:0.35,frictionAir:mode==='chaos2'?0.015:0.035});
-   pieces.push({el,body,x,y,width:r.width,height:r.height,saved:properties.map(name=>[name,el.style.getPropertyValue(name),el.style.getPropertyPriority(name)]),j:0,jv:0,held:false});
+   const gel=mode==='jelly'?jellyFilter(pieces.length):null;
+   pieces.push({el,body,x,y,width:r.width,height:r.height,saved:properties.map(name=>[name,el.style.getPropertyValue(name),el.style.getPropertyPriority(name)]),j:0,jv:0,held:false,gel});
+   if(gel){el.style.setProperty('filter',`url("#${gel.id}")`);el.style.setProperty('box-shadow','inset 5px 7px 12px #ffffff66, inset -7px -9px 16px #6432aa44, 0 14px 18px #34205a33');}
    el.style.setProperty('will-change',mode==='jelly'?'scale, rotate, border-radius':'translate, rotate');
    Composite.add(engine.world,body);
    if(mode==='chaos2'){Body.setVelocity(body,{x:(Math.random()-0.5)*3,y:-Math.random()*3});Body.setAngularVelocity(body,(Math.random()-0.5)*0.03);}
@@ -71,9 +84,9 @@ export function startVisualPhysics(root,mode){
   for(const p of pieces){
    if(!p.el.isConnected)continue;
    if(mode==='jelly'){
-    p.jv+=(-p.j*0.18-(p.held?-0.02:0));p.jv*=0.82;p.j=clamp(p.j+p.jv,-0.42,0.42);
+    p.jv+=(-p.j*0.095-(p.held?-0.055:0));p.jv*=0.87;p.j=clamp(p.j+p.jv,-0.58,0.68);
     const wave=Math.sin(time/850+p.x*0.01)*0.008;
-    p.el.style.setProperty('scale',`${1+p.j+wave} ${1-p.j*0.68-wave}`);p.el.style.setProperty('rotate',`${p.j*11}deg`);p.el.style.setProperty('border-radius',`${20+Math.abs(p.j)*80}% ${20+Math.abs(p.j)*35}%`);
+    p.el.style.setProperty('scale',`${1+p.j+wave} ${1-p.j*0.72-wave}`);p.el.style.setProperty('rotate',`${p.j*16}deg`);p.el.style.setProperty('border-radius',`${25+Math.abs(p.j)*70}% ${18+Math.abs(p.j)*48}% / ${18+Math.abs(p.j)*50}% ${28+Math.abs(p.j)*60}%`);p.gel?.displacement.setAttribute('scale',String(8+Math.abs(p.j)*Math.min(150,p.width*.7)));
    }else{
     const body=p.body,limitX=Math.max(0,(win.innerWidth-p.width)/2),limitY=Math.max(0,(win.innerHeight-p.height)/2);
     if(!Number.isFinite(body.position.x)||!Number.isFinite(body.position.y)){Body.setPosition(body,{x:p.x,y:p.y});Body.setVelocity(body,{x:0,y:0});}
@@ -90,5 +103,5 @@ export function startVisualPhysics(root,mode){
  const observer=new win.MutationObserver(schedule);observer.observe(root,{childList:true,subtree:true});
  doc.addEventListener('pointerdown',down,{passive:true});doc.addEventListener('pointerup',up,{passive:true});doc.addEventListener('pointercancel',up,{passive:true});
  win.addEventListener('deviceorientation',orientation,{passive:true});win.addEventListener('devicemotion',motion,{passive:true});win.addEventListener('scroll',schedule,{passive:true,capture:true});win.addEventListener('resize',reset,{passive:true});win.addEventListener('blur',up);
- return {shake,reset,destroy(){disposed=true;win.cancelAnimationFrame(frame);win.clearTimeout(scanTimer);observer.disconnect();doc.removeEventListener('pointerdown',down);doc.removeEventListener('pointerup',up);doc.removeEventListener('pointercancel',up);win.removeEventListener('deviceorientation',orientation);win.removeEventListener('devicemotion',motion);win.removeEventListener('scroll',schedule,true);win.removeEventListener('resize',reset);win.removeEventListener('blur',up);pieces.forEach(restore);Composite.clear(engine.world,false);Engine.clear(engine);},getPieces:()=>pieces};
+ return {shake,reset,destroy(){disposed=true;win.cancelAnimationFrame(frame);win.clearTimeout(scanTimer);observer.disconnect();svg.remove();doc.removeEventListener('pointerdown',down);doc.removeEventListener('pointerup',up);doc.removeEventListener('pointercancel',up);win.removeEventListener('deviceorientation',orientation);win.removeEventListener('devicemotion',motion);win.removeEventListener('scroll',schedule,true);win.removeEventListener('resize',reset);win.removeEventListener('blur',up);pieces.forEach(restore);Composite.clear(engine.world,false);Engine.clear(engine);},getPieces:()=>pieces};
 }

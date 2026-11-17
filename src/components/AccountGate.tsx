@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, createContext, useContext, type ReactNode, type FormEvent } from 'react';
 import VisualModes from './VisualModes';
+import DirectMessages from './DirectMessages';
 
 type Item = { videoId: string; timestamp?: number; [key: string]: unknown };
 type User = { id: string; username: string; admin?: boolean };
@@ -54,6 +55,7 @@ export default function AccountGate({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(cachedUser);
   const [phase, setPhase] = useState<'checking' | 'login' | 'loading' | 'ready' | 'error' | 'banned'>(initialBan?'banned':cachedUser ? 'ready' : 'login');
   const [banRecord,setBanRecord]=useState<BanRecord|null>(initialBan);
+  const banRef=useRef(banRecord);banRef.current=banRecord;
   const [register, setRegister] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -146,13 +148,14 @@ export default function AccountGate({ children }: { children: ReactNode }) {
         const {user:existing}=await api('/session');
         if(cancelled||authEpoch.current!==epoch)return;
         if(!existing?.id)throw new Error('Invalid session response');
-        if(banRecord){localStorage.removeItem(BAN_LOCK_KEY);setBanRecord(null);}
+        if(banRef.current){localStorage.removeItem(BAN_LOCK_KEY);setBanRecord(null);}
         serverAuthenticated.current=true;
         await initialize(existing,false,active.current?.id===existing.id);
       }catch(err:any){
         if(cancelled||authEpoch.current!==epoch)return;
         serverAuthenticated.current=false;
         if(err.code==='ACCOUNT_BANNED'){lockBanned();return;}
+        if(err.status===401&&banRef.current){setMessage('解除状況の確認には、同じアカウントで本人確認してください。');setPhase('login');return;}
         if(active.current||cachedUser)setMessage('接続・認証を確認できません。端末内のデータを保持して表示しています。');
         else if(err.status===401){setPhase('login');}
         else{setMessage('ログイン状態を確認できません。通信環境を確認してください。');setPhase('error');}
@@ -160,10 +163,10 @@ export default function AccountGate({ children }: { children: ReactNode }) {
     };
     const resume=()=>{if(!document.hidden)void verify();};
     void verify(true);
-    const interval=setInterval(resume,banRecord?60000:600000);
+    const interval=setInterval(resume,30000);
     window.addEventListener('online',resume);window.addEventListener('focus',resume);document.addEventListener('visibilitychange',resume);
     return ()=>{cancelled=true;active.current=null;clearInterval(interval);window.removeEventListener('online',resume);window.removeEventListener('focus',resume);document.removeEventListener('visibilitychange',resume);if(timer.current)clearTimeout(timer.current);};
-  },[initialize,cachedUser,banRecord,lockBanned]);
+  },[initialize,cachedUser,lockBanned]);
 
   useEffect(() => {
     const changed = (event: Event) => {
@@ -196,9 +199,9 @@ export default function AccountGate({ children }: { children: ReactNode }) {
     try { authEpoch.current++; await api('/logout', 'POST', {});serverAuthenticated.current=false; active.current = null; localStorage.removeItem(SESSION_HINT_KEY); setUser(null); setPhase('login'); setMessage(''); }
     catch { setMessage('ログアウトできませんでした。'); }
   }
-  if (phase === 'ready' && user) return <AccountContext.Provider value={{ username: user.username, ...(user.admin?{isMaster:true}:{}), logout }}><VisualModes/>{children}{message && <div role="status" className="fixed top-16 right-4 z-[200] bg-gray-900 text-white text-xs p-3 rounded-xl max-w-xs shadow-lg">{message}{!serverAuthenticated.current&&<button type="button" className="block mt-2 underline" onClick={()=>{setPassword('');setConfirm('');setPhase('login');setMessage('端末内のデータを保持したまま再接続します。');}}>再ログインして同期を再開</button>}</div>}</AccountContext.Provider>;
+  if (phase === 'ready' && user) return <AccountContext.Provider value={{ username: user.username, ...(user.admin?{isMaster:true}:{}), logout }}><VisualModes/><DirectMessages/>{children}{message && <div role="status" className="fixed top-16 right-4 z-[200] bg-gray-900 text-white text-xs p-3 rounded-xl max-w-xs shadow-lg">{message}{!serverAuthenticated.current&&<button type="button" className="block mt-2 underline" onClick={()=>{setPassword('');setConfirm('');setPhase('login');setMessage('端末内のデータを保持したまま再接続します。');}}>再ログインして同期を再開</button>}</div>}</AccountContext.Provider>;
 
-  if(phase==='banned')return <main className="min-h-screen bg-gray-950 text-white flex items-center justify-center p-5"><section className="w-full max-w-md rounded-3xl border border-red-900 bg-gray-900 p-8 text-center shadow-2xl" role="alert"><div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-red-950 text-3xl" aria-hidden="true">!</div><h1 className="mt-5 text-2xl font-bold">このアカウントはBANされています</h1><p className="mt-3 text-sm leading-6 text-gray-300">この端末では、新しいアカウントの作成、ログアウト、アカウント切り替えなどの操作はできません。</p>{banRecord?.username&&<p className="mt-4 text-xs text-gray-500">対象アカウント: @{banRecord.username}</p>}<p className="mt-5 text-xs text-gray-500">BANが解除された場合は、この画面を開いたままにするか、しばらくしてから再読み込みしてください。</p></section></main>;
+  if(phase==='banned')return <><DirectMessages appealOnly/><main className="min-h-screen bg-gray-950 text-white flex items-center justify-center p-5"><section className="w-full max-w-md rounded-3xl border border-red-900 bg-gray-900 p-8 text-center shadow-2xl" role="alert"><div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-red-950 text-3xl" aria-hidden="true">!</div><h1 className="mt-5 text-2xl font-bold">このアカウントはBANされています</h1><p className="mt-3 text-sm leading-6 text-gray-300">この端末では、新しいアカウントの作成、ログアウト、アカウント切り替えなどの操作はできません。</p>{banRecord?.username&&<p className="mt-4 text-xs text-gray-500">対象アカウント: @{banRecord.username}</p>}<p className="mt-5 text-xs text-gray-500">BANが解除された場合は、この画面を開いたままにするか、しばらくしてから再読み込みしてください。</p></section></main></>;
 
   return <main className="min-h-screen bg-gray-50 flex items-center justify-center p-5"><section className="w-full max-w-md bg-white rounded-3xl shadow-lg border border-gray-100 p-7 sm:p-9"><h1 className="text-2xl font-bold text-gray-900">XeroxYT-NTv7 for GAS</h1><p className="text-sm text-gray-500 mt-2">アカウントにログインして、視聴履歴を端末とクラウドに保存します。</p>{phase === 'error' ? <><p className="mt-6 text-red-700" role="alert">{message}</p><button className="mt-4 rounded-xl bg-gray-900 text-white px-4 py-2" onClick={() => user ? void initialize(user) : window.location.reload()}>再試行</button></> : <form onSubmit={submit} className="mt-7 space-y-4"><h2 className="text-lg font-semibold">{register ? '新規アカウント作成' : 'ログイン'}</h2><label className="block text-sm">ユーザー名<input autoComplete="username" value={username} onChange={e => setUsername(e.target.value)} required minLength={3} maxLength={32} pattern="[A-Za-z0-9_]+" className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2.5" placeholder="英数字と _" /></label><label className="block text-sm">パスワード<input type="password" autoComplete={register ? 'new-password' : 'current-password'} value={password} onChange={e => setPassword(e.target.value)} required minLength={12} maxLength={128} className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2.5" placeholder="12文字以上" /></label>{register && <label className="block text-sm">パスワード（確認）<input type="password" autoComplete="new-password" value={confirm} onChange={e => setConfirm(e.target.value)} required className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2.5" /></label>}{!localStorage.getItem('xerox_last_account_id') && <label className="flex items-start gap-2 text-sm text-gray-600"><input type="checkbox" checked={migrate} onChange={e => setMigrate(e.target.checked)} className="mt-1" />この端末にある以前の視聴履歴を取り込む</label>}{message && <p className="text-sm text-red-700" role="alert">{message}</p>}<button disabled={phase === 'loading'} className="w-full bg-gray-900 disabled:opacity-60 text-white rounded-xl py-3 font-semibold">{phase === 'loading' ? '処理中…' : register ? 'アカウントを作成' : 'ログイン'}</button><button type="button" onClick={() => { setRegister(!register); setMessage(''); }} className="w-full text-sm text-blue-700 py-2">{register ? 'すでにアカウントを持っている' : '新規アカウントを作成'}</button>{register && <p className="text-xs text-gray-500">パスワード再設定機能はまだありません。忘れないよう安全に保管してください。</p>}</form>}</section></main>;
 }

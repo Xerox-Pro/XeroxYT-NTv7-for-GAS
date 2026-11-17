@@ -139,6 +139,7 @@ function gasRequest(request) {
     var text=response.getContentText();
     if(text.length>4000000)return gasResult_(413,{error:'応答が大きすぎます。'});
     var data=JSON.parse(text);
+    if(request.path==='/api/account/login'&&status===403&&data.code==='ACCOUNT_BANNED')gasSaveCookie_(key,responseHeaders);
     data=gasSanitize_(data,[api,account]);
     if(secret)data=gasSanitize_(data,[secret]);
     var safeHeaders={};
