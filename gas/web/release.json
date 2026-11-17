@@ -1,11 +1,9 @@
 {
   "version": 1,
-  "entry": "app-JHpt1kpk.js",
+  "entry": "app-D4W42s4z.js",
   "css": "style-B8xfnfFc.css",
   "server": "server-runtime.json",
   "serverHash": "d806b7925a5a4d2cdf7b1b1f3028744e2ab65128763bba53ac93a06fcd825ad6",
-  "builtAt": 1794958937653,
-  "source": "edb89f50edf494a919136abc0587777d91746bdd",
-  "revision": "bb77fd0b2532a74640842538779bd8aa7640f0f5",
-  "publishedAt": 1794958942950
+  "builtAt": 1794959882190,
+  "source": "fab9c208ce6555c7d7b5dd41e93240cd1dd60ccb"
 }
