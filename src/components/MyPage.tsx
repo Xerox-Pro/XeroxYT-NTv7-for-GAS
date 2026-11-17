@@ -2,6 +2,7 @@ import {useYouTubeLinked} from '../lib/youtubeConnection';
 import VideoThumbnail from "./VideoThumbnail";
 import RecommendationDebug from "./RecommendationDebug";
 import TransportSettings from "./TransportSettings";
+import ThemeSettings from "./ThemeSettings";
 import LocalDataPanel from "./LocalDataPanel";
 import {
   useEffect,
@@ -201,6 +202,7 @@ export default function MyPage(props: Props) {
         </section>
       )}
       <TransportSettings />
+      <ThemeSettings />
       <dialog
         ref={dialog}
         className="profile-dialog"

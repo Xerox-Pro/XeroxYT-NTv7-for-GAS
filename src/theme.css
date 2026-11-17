@@ -1,0 +1,13 @@
+:root[data-theme=dark]{background:#101116;color:#e7e8ee}
+html[data-theme=dark] body{background:#101116;color:#e7e8ee}
+html[data-theme=dark] :is(.bg-white,.my-page,.profile-dialog,.playlist-workspace,.my-section,.transport-settings,.social-app,.social-sidebar,.social-post,.social-dialog,.messages-page,.messages-conversation,.messages-send,.messages-actions>div){background-color:#17191f!important;color:#e7e8ee}
+html[data-theme=dark] :is(.bg-gray-50,.bg-gray-100,.bg-slate-50,.messages-thread:hover,.messages-search input,.messages-compose,.messages-bubble:not(.mine)){background-color:#23262f!important;color:#e0e2eb}
+html[data-theme=dark] :is(.text-black,.text-gray-900,.text-gray-800,.text-gray-700){color:#e2e4ee!important}
+html[data-theme=dark] :is(.text-gray-600,.text-gray-500){color:#a5aaba!important}
+html[data-theme=dark] :is(.border-gray-100,.border-gray-200,.border-gray-300,.messages-inbox,.messages-chat-header,.messages-tabs,.messages-inbox-footer,.transport-settings){border-color:#353946!important}
+html[data-theme=dark] :is(input,textarea,select,dialog){background-color:#20232c;color:#edf0f8;border-color:#444958}
+html[data-theme=dark] :is(.messages-thread.selected,.messages-tabs button[aria-selected=true]){background:#34304c;color:#ddd1ff}
+html[data-theme=dark] .messages-chat-body{background:radial-gradient(ellipse at 100% 100%,#242033,#17191f 70%)}
+html[data-theme=dark] .social-app{--social-border:#343843;--social-muted:#a2a7b5}
+html[data-theme=dark] :is(.my-profile,.my-account-actions,.my-section-heading,.my-settings,.my-profile-text,.my-section h2){color:#e7e8ee}
+html[data-theme=dark] :is(.hover\:bg-gray-100:hover,.hover\:bg-gray-200:hover){background-color:#333744!important}
