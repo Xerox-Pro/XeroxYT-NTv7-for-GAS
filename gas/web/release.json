@@ -1,11 +1,9 @@
 {
   "version": 1,
-  "entry": "app-BOiK6N_p.js",
-  "css": "style-Bh0gZpf2.css",
+  "entry": "app-DCn3rY2G.js",
+  "css": "style-ha72myls.css",
   "server": "server-runtime.json",
   "serverHash": "d806b7925a5a4d2cdf7b1b1f3028744e2ab65128763bba53ac93a06fcd825ad6",
-  "builtAt": 1794905238113,
-  "source": "7979e15fe73daed1abfc8e948efaa37d5200ff68",
-  "revision": "7aacf9fadd378b81c20557943692c8127973d50a",
-  "publishedAt": 1794905242546
+  "builtAt": 1794956251219,
+  "source": "5614caa545efdaa09037e1e8766344f6e70da872"
 }
