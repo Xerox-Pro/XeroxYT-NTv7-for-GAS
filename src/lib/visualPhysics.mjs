@@ -40,12 +40,15 @@ export function startVisualPhysics(root,mode){
   if(disposed)return;
   if(force)pieces.forEach(restore);
   const nodes=collect();
-  if(!force&&nodes.length===pieces.length&&nodes.every((el,i)=>el===pieces[i].el))return;
-  pieces.forEach(restore);Composite.clear(engine.world,false);pieces=[];defs.replaceChildren();
+  if(force){pieces.forEach(restore);Composite.clear(engine.world,false);pieces=[];walls=[];defs.replaceChildren();}
+  for(const p of pieces.filter(p=>!p.el.isConnected||p.el.closest(excluded))){restore(p);Composite.remove(engine.world,p.body);doc.getElementById(p.gel?.id)?.remove();}
+  pieces=pieces.filter(p=>p.el.isConnected&&!p.el.closest(excluded));
+  const existing=new Set(pieces.map(p=>p.el));
   const width=win.innerWidth,height=win.innerHeight,thickness=200;
-  walls=[Bodies.rectangle(width/2,height+thickness/2,width+400,thickness,{isStatic:true}),Bodies.rectangle(-thickness/2,height/2,thickness,height+400,{isStatic:true}),Bodies.rectangle(width+thickness/2,height/2,thickness,height+400,{isStatic:true}),Bodies.rectangle(width/2,-thickness/2,width+400,thickness,{isStatic:true})];
-  Composite.add(engine.world,walls);
+  if(!walls.length){walls=[Bodies.rectangle(width/2,height+thickness/2,width+400,thickness,{isStatic:true}),Bodies.rectangle(-thickness/2,height/2,thickness,height+400,{isStatic:true}),Bodies.rectangle(width+thickness/2,height/2,thickness,height+400,{isStatic:true}),Bodies.rectangle(width/2,-thickness/2,width+400,thickness,{isStatic:true})];
+  Composite.add(engine.world,walls);}
   for(const el of nodes){
+   if(existing.has(el)||pieces.length>=90)continue;
    const r=el.getBoundingClientRect(),x=r.left+r.width/2,y=r.top+r.height/2;
    const body=Bodies.rectangle(clamp(x,r.width/2,width-r.width/2),clamp(y,r.height/2,height-r.height/2),r.width,r.height,{restitution:mode==='chaos2'?0.88:0.24,friction:0.35,frictionAir:mode==='chaos2'?0.015:0.035});
    const gel=mode==='jelly'?jellyFilter(pieces.length):null;
@@ -66,9 +69,11 @@ export function startVisualPhysics(root,mode){
   for(const p of pieces){if(p.el===event.target||p.el.contains(event.target)){p.held=true;if(mode==='jelly'){p.jv+=0.14;p.j=clamp(p.j+0.15,-0.4,0.4);impulse(event.clientX,event.clientY,0.5);}else Body.setStatic(p.body,true);}}
  };
  const up=()=>{for(const p of pieces){if(!p.held)continue;p.held=false;if(mode==='jelly')p.jv-=0.13;else Body.setStatic(p.body,false);}};
- const orientation=event=>{if(Number.isFinite(event.beta)&&Number.isFinite(event.gamma)){gravity=tiltGravity(event.beta,event.gamma,win.screen?.orientation?.angle||0);}};
+ let lastOrientation=-Infinity;
+ const screenAngle=()=>Number(win.screen?.orientation?.angle??win.orientation??0);
+ const orientation=event=>{if(Number.isFinite(event.beta)&&Number.isFinite(event.gamma)){lastOrientation=now();gravity=tiltGravity(event.beta,event.gamma,screenAngle());}};
  let lastShake=0;
- const motion=event=>{const a=event.acceleration;if(!a)return;const magnitude=Math.hypot(a.x||0,a.y||0,a.z||0);if(magnitude>9&&now()-lastShake>350){lastShake=now();shake();}};
+ const motion=event=>{const g=event.accelerationIncludingGravity;if(g&&now()-lastOrientation>1500&&Number.isFinite(g.x)&&Number.isFinite(g.y)){const angle=screenAngle()*Math.PI/180,x=-g.x/9.81,y=g.y/9.81;gravity={x:clamp(x*Math.cos(angle)+y*Math.sin(angle),-1,1),y:clamp(-x*Math.sin(angle)+y*Math.cos(angle),-1,1)};}const a=event.acceleration;if(!a)return;const magnitude=Math.hypot(a.x||0,a.y||0,a.z||0);if(magnitude>9&&now()-lastShake>350){lastShake=now();shake();}};
  const tick=time=>{
   if(disposed)return;
   frame=win.requestAnimationFrame(tick);

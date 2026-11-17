@@ -30,3 +30,8 @@ test('jelly deforms on press without cancelling the original click, then restore
  assert.equal(event.defaultPrevented,false);assert.notEqual(button.parentElement.style.scale,'');button.click();assert.equal(clicks,1);
  runtime.destroy();assert.equal(button.parentElement.style.scale,'');f.dom.window.close();
 });
+test('newly loaded parts are added without resetting existing rigid bodies',async()=>{
+ const f=fixture(),runtime=startVisualPhysics(f.root,'chaos');for(let i=1;i<20;i++)f.step(i*17);
+ const body=runtime.getPieces()[0].body,y=body.position.y;const button=f.w.document.createElement('button');button.textContent='new';button.getBoundingClientRect=()=>({left:300,top:40,width:80,height:30,right:380,bottom:70});f.root.appendChild(button);
+ await new Promise(resolve=>setTimeout(resolve,300));assert.equal(runtime.getPieces()[0].body,body);assert.equal(body.position.y,y);assert.equal(runtime.getPieces().length,3);runtime.destroy();f.dom.window.close();
+});
