@@ -2,7 +2,7 @@ import AppSwitcher from './AppSwitcher';
 import React,{useEffect,useState} from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'motion/react';
-import { Home, Zap, PlaySquare, Folder, History, ThumbsUp, Wrench, ShieldCheck, MessageCircle } from 'lucide-react';
+import { Home, Zap, PlaySquare, Folder, History, ThumbsUp, Wrench, ShieldCheck, MessageCircle, Bell, Settings } from 'lucide-react';
 import { ChannelSubscription } from '../types';
 import Avatar from './Avatar';
 
@@ -32,6 +32,8 @@ const section2 = [
   { icon: Folder, label: 'ライブラリ', activeValue: 'library', path: '/feed/library' },
   { icon: MessageCircle, label: 'DM', activeValue: 'messages', path: '/messages' },
   { icon: History, label: '履歴', activeValue: 'history', path: '/feed/history' },
+  { icon: Bell, label: 'お知らせ', activeValue: 'announcements', path: '/announcements' },
+  { icon: Settings, label: '設定', activeValue: 'settings', path: '/settings' },
 ];
 
 export default function Sidebar({ 
@@ -205,6 +207,7 @@ export default function Sidebar({
           <>
             <hr className="border-gray-200 my-1.5" />
             <div className="flex flex-col gap-1">
+              {section2.filter(link=>link.activeValue==='announcements'||link.activeValue==='settings').map(renderLink)}
               <Link
                 to="/feed/library"
                 onClick={() => handleClick('library')}

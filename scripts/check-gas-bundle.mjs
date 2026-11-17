@@ -39,6 +39,10 @@ w.google={script:{get run(){
  return {withSuccessHandler(fn){success=fn;return this;},withFailureHandler(){return this;},gasRequest(request){
   calls.push(request);
   const session=request.path==='/api/account/session';
+  if(request.path.startsWith('/api/account/announcements')){
+   const data=request.path.endsWith('/read')?{readAt:123}:{announcements:[{id:'notice-test',title:'Google連携のご案内',date:'2026-11-18',body:'アカウント別お知らせテスト',readAt:null}]};
+   w.setTimeout(()=>success({status:200,body:JSON.stringify(data),headers:{'content-type':'application/json'}}),0);return;
+  }
   if(request.path==='/api/account/terms'){w.setTimeout(()=>success({status:200,body:JSON.stringify({version:'test',sections:[['利用規約','テスト規約']],accepted:true}),headers:{'content-type':'application/json'}}),0);return;}
   if(request.path.startsWith('/api/account/dm')){
    const data=request.path==='/api/account/dm/profile'?{nickname:'テスト表示名'}:request.path==='/api/account/dm'?{threads:[{id:'11111111-1111-4111-8111-111111111111',status:'accepted',kind:'normal',label:'テストの会話',updatedAt:1}]}:request.path==='/api/account/dm/rooms'?{rooms:[]}:{messages:[{id:'message-one',text:'こんにちは、DMテストです',mine:false,createdAt:Date.now()}]};
@@ -85,6 +89,19 @@ try{
   const page2=calls.filter(call=>/recommendations\?.*page=2(?:&|$)/.test(call.path));
   assert.equal(page2.length,2);assert.equal(page2[0].path,page2[1].path);
  }
+ w.location.hash='/settings';
+ await until(()=>w.document.querySelector('.display-settings'));
+ assert.equal(w.document.querySelectorAll('.display-settings input[type=checkbox]').length,6);
+ const hideShorts=w.document.querySelector('.display-settings input[type=checkbox]');hideShorts.click();
+ await until(()=>w.document.documentElement.getAttribute('data-pref-hide-shorts')==='true');
+ w.location.hash='/shorts';
+ await until(()=>w.document.body.textContent.includes('ショートは表示設定で非表示'));
+ w.location.hash='/announcements';
+ await until(()=>w.document.querySelector('.announcement-card'));
+ assert.ok(w.document.querySelector('.announcement-unread'));
+ w.document.querySelector('.announcement-card summary').click();
+ await until(()=>calls.some(call=>call.path==='/api/account/announcements/read'));
+ await until(()=>!w.document.querySelector('.announcement-unread'));
  w.location.hash='/instagram';
  await until(()=>calls.some(call=>call.path.startsWith('/api/instagram/')));
  w.location.hash='/feed/library';

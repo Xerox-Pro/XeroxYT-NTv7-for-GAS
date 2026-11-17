@@ -1,4 +1,6 @@
-import GoogleLinkAnnouncement from './components/GoogleLinkAnnouncement';
+import DisplaySettings from './components/DisplaySettings';
+import Announcements from './components/Announcements';
+import {useDisplayPreferences} from './lib/displayPreferences';
 import YouTubeAccountPanel from './components/YouTubeAccountPanel';
 import SearchFilters from './components/SearchFilters';
 import {searchFilterParams} from '../search-filters.mjs';
@@ -61,7 +63,8 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
   const location = useLocation();
   const [searchParams] = useSearchParams();
 
-  const [view, setView] = useState<'home' | 'search' | 'video' | 'shorts' | 'channel' | 'subscriptions' | 'library' | 'history' | 'debug' | 'system' | 'messages' | 'license'>('home');
+  const [view, setView] = useState<'home' | 'search' | 'video' | 'shorts' | 'channel' | 'subscriptions' | 'library' | 'history' | 'debug' | 'system' | 'messages' | 'license' | 'settings' | 'announcements'>('home');
+  const displayPrefs=useDisplayPreferences();
   const siteAccount = useSiteAccount();
   useEffect(()=>{if(!siteAccount?.isMaster)return;const open=(event:Event)=>{const target=(event as CustomEvent).detail?.target;if(typeof target==='string'){sessionStorage.setItem('xerox_dm_compose',target);navigate('/messages');}};window.addEventListener('xerox-open-dm',open);return()=>window.removeEventListener('xerox-open-dm',open);},[siteAccount?.isMaster,navigate]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -185,6 +188,10 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
       setView('subscriptions');
     } else if (path === '/feed/library') {
       setView('library');
+    } else if (path === '/settings') {
+      setView('settings');
+    } else if (path === '/announcements') {
+      setView('announcements');
     } else if (path === '/messages') {
       setView('messages');
     } else if (path === '/feed/history') {
@@ -1060,7 +1067,6 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
   },[activeMix?.cursor,playlistQueueIndex,currentPlaylistQueue.length,mixBusy]);
   return (
     <div className={`${view === 'search' ? 'is-search-page ' : ''}${view === 'shorts' ? 'is-shorts-page ' : ''}min-h-screen bg-white text-gray-900 flex flex-col font-sans antialiased selection:bg-red-100 selection:text-red-800`}>
-      {!isSocial&&<GoogleLinkAnnouncement onOpen={()=>navigate('/feed/library')}/>}
       {youtubeActionError&&<div role="alert" className="youtube-action-toast">{youtubeActionError}<button onClick={()=>setYoutubeActionError('')}>閉じる</button></div>}
       {openingMix&&<div role="status" aria-live="polite" className="youtube-action-toast"><span className="inline-block h-4 w-4 shrink-0 rounded-full border-2 border-white/30 border-t-white motion-safe:animate-spin" aria-hidden="true"/><span>ミックスリストを読み込み中…<span className="block max-w-64 truncate text-white/70">{openingMix}</span></span></div>}
       <TopProgressBar isLoading={loading || loadingMore || !!openingMix} />
@@ -1139,7 +1145,7 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
             >
               {view==='search'&&searchQuery&&<div className="mobile-search-filters no-scrollbar" aria-label="検索結果の絞り込み">{['すべて','ショート','未視聴','視聴済み','動画'].map(filter=><button type="button" key={filter} aria-pressed={filter==='ショート'?searchParams.get('type')==='shorts':filter==='動画'?searchParams.get('type')==='video':filter==='すべて'?(!searchParams.get('type')&&mobileSearchFilter==='すべて'):mobileSearchFilter===filter} onClick={()=>{if(filter==='ショート'||filter==='動画'||filter==='すべて'){const next=new URLSearchParams(searchParams);if(filter==='すべて')next.delete('type');else next.set('type',filter==='ショート'?'shorts':'video');navigate('/results?'+next);}else setMobileSearchFilter(filter);}}>{filter}</button>)}</div>}
               {/* カテゴリーバー（ホーム ＆ 検索画面のみ） */}
-              {view === 'home' && googleStatusReady && !userInfo && (
+              {view === 'home' && googleStatusReady && !userInfo && !displayPrefs.hideCategories && (
                 <CategoryBar
                   selectedCategory={selectedCategory}
                   onSelectCategory={handleSelectCategory}
@@ -1147,7 +1153,9 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
               )}
 
           {/* ビュー分岐 */}
-          {view === 'video' ? null : view === 'shorts' ? (
+          {view === 'video' ? null : view === 'shorts' && displayPrefs.hideShorts ? (
+            <div className="p-8 text-center"><p>ショートは表示設定で非表示になっています。</p><Link className="underline" to="/settings">設定を変更する</Link></div>
+          ) : view === 'shorts' ? (
             <ShortsViewer
               key={['shorts',userInfo?'youtube':'local', searchParams.get('source'), searchParams.get('q'), searchParams.get('videoId'), searchParams.get('channelId')].join(':')}
               initialVideo={videoCache[location.pathname.split('/')[2]] as Video | undefined}
@@ -1234,6 +1242,10 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
             )
           ) : view === 'debug' ? (
             <DebugAPI />
+          ) : view === 'settings' ? (
+            <DisplaySettings/>
+          ) : view === 'announcements' ? (
+            <Announcements/>
           ) : view === 'messages' ? (
             <DirectMessages/>
           ) : view === 'system' ? (
@@ -1284,7 +1296,7 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
                 </div>
               )}
 
-              {(view!=='home'||googleStatusReady)&&!(view==='search'&&hasSearchFilters)&&<ShortsShelf
+              {!displayPrefs.hideShorts&&(view!=='home'||googleStatusReady)&&!(view==='search'&&hasSearchFilters)&&<ShortsShelf
                 onVideosLoaded={view==='home' ? data=>setHomeShorts({category:selectedCategory,videos:data}) : undefined}
                 context={view === 'search' ? { source: 'search', q: searchQuery } : { source: 'home', q: selectedCategory === 'すべて' ? undefined : selectedCategory }}
                 onSelect={handleShortSelect}
@@ -1312,7 +1324,7 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
                       <span className="result-save-label">+ 保存</span><Folder className="result-save-icon" size={18}/>
                     </button>
                   </div>
-                  {view==='home' && (idx+1)%12===0 && homeShorts.category===selectedCategory && homeShorts.videos.length>Math.floor((idx+1)/12)*8 && <div className="col-span-full"><ShortsShelf context={{source:'home',q:selectedCategory==='すべて'?undefined:selectedCategory}} providedVideos={homeShorts.videos} offset={Math.floor((idx+1)/12)*8} onSelect={handleShortSelect}/></div>}
+                  {!displayPrefs.hideShorts && view==='home' && (idx+1)%12===0 && homeShorts.category===selectedCategory && homeShorts.videos.length>Math.floor((idx+1)/12)*8 && <div className="col-span-full"><ShortsShelf context={{source:'home',q:selectedCategory==='すべて'?undefined:selectedCategory}} providedVideos={homeShorts.videos} offset={Math.floor((idx+1)/12)*8} onSelect={handleShortSelect}/></div>}
                   </React.Fragment>
 
                 ))}

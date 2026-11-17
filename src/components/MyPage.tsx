@@ -23,7 +23,7 @@ import {
   History,
   Plus,
 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useSiteAccount } from "./AccountGate";
 import { useDeviceProfile, readProfileImage } from "../lib/deviceProfile";
 import type LibraryPage from "./LibraryPage";
@@ -203,6 +203,7 @@ export default function MyPage(props: Props) {
       )}
       <TransportSettings />
       <ThemeSettings />
+      <p className="my-4"><Link className="underline" to="/settings">表示・再生設定（サイズ・ショートなど10項目）</Link> · <Link className="underline" to="/announcements">お知らせ</Link></p>
       <dialog
         ref={dialog}
         className="profile-dialog"
