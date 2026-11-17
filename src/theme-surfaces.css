@@ -1,0 +1,6 @@
+html[data-theme=dark] :is(.persistent-mini-player,.shorts-comments-inline,.shorts-info-panel,.video-comments-section.mobile-comments-open,.video-description-sheet,.shorts-feed-retry .compact-error,.subscription-manage-backdrop>section,.mobile-search-filters,.playlist-queue-panel,.playlist-options>div,.playback-settings-dialog,.search-filter-panel,.search-filter-panel footer,.youtube-link-panel,.social-mobile-header,.social-bottom-nav,.social-media-error,.app-picker){background:#181818!important;color:#f1f1f1!important;border-color:#343434!important}
+html[data-theme=dark] :is(.shorts-channel-status button,.shorts-embed-error .compact-error-line>button,.playlist-detail-actions>button.playlist-play-all,.navbar-google-login,.navbar-google-mobile,.tiktok-mode .social-create-button){background:#272727!important;color:#f1f1f1!important;border-color:#404040!important}
+html[data-theme=dark] :is(.playlist-edit-form input,.playlist-edit-form textarea,.transport-settings select){background:#121212!important;color:#f1f1f1!important;border-color:#404040!important}
+html[data-theme=dark] :is(.video-description-sheet p,.shorts-info-panel p,.youtube-link-panel p){color:#aaa!important}
+html[data-theme=dark] .app-picker button{color:#f1f1f1}
+html[data-theme=dark] .app-picker button:hover{background:#303030}

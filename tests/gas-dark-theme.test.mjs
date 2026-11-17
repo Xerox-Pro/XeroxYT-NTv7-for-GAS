@@ -1,0 +1,5 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {JSDOM} from 'jsdom';import {readFileSync} from 'node:fs';
+test('dark theme covers the navbar and keeps pastel action labels readable',()=>{
+ const css=readFileSync(new URL('../src/theme.css',import.meta.url),'utf8');const dom=new JSDOM('<html data-theme="dark"><head><style>.app-navbar{background:#fff;color:#111}'+css+'</style></head><body><header class="app-navbar">Header</header><button class="bg-amber-100 text-gray-800">通信停止</button><div class="bg-white">Dialog</div></body></html>');
+ const w=dom.window;assert.equal(w.getComputedStyle(w.document.querySelector('header')).backgroundColor,'rgb(15, 15, 15)');assert.equal(w.getComputedStyle(w.document.querySelector('button')).backgroundColor,'rgb(56, 45, 24)');assert.equal(w.getComputedStyle(w.document.querySelector('button')).color,'rgb(244, 217, 147)');assert.equal(w.getComputedStyle(w.document.querySelector('div')).backgroundColor,'rgb(24, 24, 24)');w.close();
+});

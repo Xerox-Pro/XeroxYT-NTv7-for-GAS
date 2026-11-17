@@ -8,6 +8,7 @@ import PWAUpdateIndicator from './components/PWAUpdateIndicator';
 import PrivateModeGate from './components/PrivateModeGate';
 import {watchTheme} from './lib/theme.mjs';
 import './theme.css';
+import './theme-surfaces.css';
 
 class ServiceBoundary extends Component<{children:ReactNode},{failed:boolean}>{state={failed:false};static getDerivedStateFromError(){return {failed:true};}render(){return this.state.failed?<section role="alert" className="p-10 text-center"><p>アプリを読み込めませんでした。通信環境を確認してください。</p><button className="m-4 underline" onClick={()=>window.location.reload()}>再読み込み</button><Link className="underline" to="/">YouTubeに戻る</Link></section>:this.props.children;}}
 export default function App() {

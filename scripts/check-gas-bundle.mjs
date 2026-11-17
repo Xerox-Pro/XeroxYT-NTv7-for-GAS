@@ -39,6 +39,7 @@ w.google={script:{get run(){
  return {withSuccessHandler(fn){success=fn;return this;},withFailureHandler(){return this;},gasRequest(request){
   calls.push(request);
   const session=request.path==='/api/account/session';
+  if(request.path==='/api/account/terms'){w.setTimeout(()=>success({status:200,body:JSON.stringify({version:'test',sections:[['利用規約','テスト規約']],accepted:true}),headers:{'content-type':'application/json'}}),0);return;}
   if(request.path.startsWith('/api/account/dm')){
    const data=request.path==='/api/account/dm/profile'?{nickname:'テスト表示名'}:request.path==='/api/account/dm'?{threads:[{id:'11111111-1111-4111-8111-111111111111',status:'accepted',kind:'normal',label:'テストの会話',updatedAt:1}]}:request.path==='/api/account/dm/rooms'?{rooms:[]}:{messages:[{id:'message-one',text:'こんにちは、DMテストです',mine:false,createdAt:Date.now()}]};
    w.setTimeout(()=>success({status:200,body:JSON.stringify(data),headers:{'content-type':'application/json'}}),0);return;
