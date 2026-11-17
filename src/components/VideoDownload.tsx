@@ -9,6 +9,7 @@ export default function VideoDownload({videoId}:{videoId:string}){
  const linked=useYouTubeLinked(),[open,setOpen]=useState(false),[consent,setConsent]=useState(false),[formats,setFormats]=useState<Format[]>([]),[video,setVideo]=useState(''),[audio,setAudio]=useState(''),[mode,setMode]=useState('merge'),[title,setTitle]=useState(videoId),[busy,setBusy]=useState(false),[status,setStatus]=useState(''),[error,setError]=useState('');
  const cancelled=useRef(false),engine=useRef<FFmpeg|null>(null);
  useEffect(()=>()=>{cancelled.current=true;engine.current?.terminate();},[]);
+ useEffect(()=>{if(busy)(window as any).__XEROX_GAS_DOWNLOAD_BUSY__=true;return()=>{if(busy)(window as any).__XEROX_GAS_DOWNLOAD_BUSY__=false;};},[busy]);
  useEffect(()=>{setFormats([]);setOpen(false);setConsent(false);},[videoId]);
  if(!linked)return null;
  const load=async()=>{setBusy(true);setError('');try{const result=await api('formats',{videoId,rightsConfirmed:consent});setFormats(result.formats);setTitle(result.title);setVideo(result.formats.find((f:Format)=>f.video)?.token||'');setAudio(result.formats.find((f:Format)=>f.audio&&!f.video)?.token||'');}catch(e){setError((e as Error).message);}finally{setBusy(false);}};

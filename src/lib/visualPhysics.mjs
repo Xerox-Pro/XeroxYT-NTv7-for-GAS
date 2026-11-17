@@ -1,0 +1,94 @@
+import Matter from 'matter-js';
+
+const {Engine,Bodies,Body,Composite,Vector}=Matter;
+const selector='[data-physics-piece],button,a,input,select,textarea,img,iframe,video';
+const excluded='[data-effect-controls],[aria-label="システム管理"],[role="dialog"],dialog,[role="alert"],[role="status"]';
+const properties=['translate','rotate','scale','border-radius','will-change','transform-origin'];
+const clamp=(n,min,max)=>Math.max(min,Math.min(max,n));
+
+export function tiltGravity(beta,gamma,angle=0){
+ const x=Math.sin(clamp(gamma,-90,90)*Math.PI/180),y=Math.sin(clamp(beta,-90,90)*Math.PI/180),a=angle*Math.PI/180;
+ return {x:clamp(x*Math.cos(a)+y*Math.sin(a),-1,1),y:clamp(-x*Math.sin(a)+y*Math.cos(a),-1,1)};
+}
+
+// The original DOM elements stay mounted: event handlers, focus and player
+// state survive. Individual CSS transforms compose with React/Motion transforms.
+export function startVisualPhysics(root,mode){
+ const win=root.ownerDocument.defaultView,doc=root.ownerDocument;
+ const engine=Engine.create({enableSleeping:false});
+ let pieces=[],walls=[],frame=0,last=0,scanTimer=0,disposed=false,gravity={x:0,y:1};
+ const now=()=>win.performance.now();
+ const restore=piece=>{for(const [name,value,priority]of piece.saved){if(value)piece.el.style.setProperty(name,value,priority);else piece.el.style.removeProperty(name);}};
+ const visible=el=>{if(el.closest(excluded))return false;const r=el.getBoundingClientRect();return r.width>=12&&r.height>=12&&r.width<=win.innerWidth&&r.height<=win.innerHeight&&r.bottom>0&&r.top<win.innerHeight&&r.right>0&&r.left<win.innerWidth&&win.getComputedStyle(el).visibility!=='hidden';};
+ const collect=()=>{
+  const nodes=[...root.querySelectorAll(selector)].filter(visible);
+  const candidates=new Set(nodes);
+  return nodes.filter(el=>{let parent=el.parentElement;while(parent&&parent!==root){if(candidates.has(parent))return false;parent=parent.parentElement;}return true;}).slice(0,90);
+ };
+ const rebuild=(force=false)=>{
+  if(disposed)return;
+  if(force)pieces.forEach(restore);
+  const nodes=collect();
+  if(!force&&nodes.length===pieces.length&&nodes.every((el,i)=>el===pieces[i].el))return;
+  pieces.forEach(restore);Composite.clear(engine.world,false);pieces=[];
+  const width=win.innerWidth,height=win.innerHeight,thickness=200;
+  walls=[Bodies.rectangle(width/2,height+thickness/2,width+400,thickness,{isStatic:true}),Bodies.rectangle(-thickness/2,height/2,thickness,height+400,{isStatic:true}),Bodies.rectangle(width+thickness/2,height/2,thickness,height+400,{isStatic:true}),Bodies.rectangle(width/2,-thickness/2,width+400,thickness,{isStatic:true})];
+  Composite.add(engine.world,walls);
+  for(const el of nodes){
+   const r=el.getBoundingClientRect(),x=r.left+r.width/2,y=r.top+r.height/2;
+   const body=Bodies.rectangle(clamp(x,r.width/2,width-r.width/2),clamp(y,r.height/2,height-r.height/2),r.width,r.height,{restitution:mode==='chaos2'?0.88:0.24,friction:0.35,frictionAir:mode==='chaos2'?0.015:0.035});
+   pieces.push({el,body,x,y,width:r.width,height:r.height,saved:properties.map(name=>[name,el.style.getPropertyValue(name),el.style.getPropertyPriority(name)]),j:0,jv:0,held:false});
+   el.style.setProperty('will-change',mode==='jelly'?'scale, rotate, border-radius':'translate, rotate');
+   Composite.add(engine.world,body);
+   if(mode==='chaos2'){Body.setVelocity(body,{x:(Math.random()-0.5)*3,y:-Math.random()*3});Body.setAngularVelocity(body,(Math.random()-0.5)*0.03);}
+  }
+ };
+ const schedule=()=>{win.clearTimeout(scanTimer);scanTimer=win.setTimeout(()=>rebuild(),250);};
+ const reset=()=>rebuild(true);
+ const impulse=(x,y,strength=1)=>{for(const p of pieces){if(mode==='jelly'){const distance=Math.hypot(p.x-x,p.y-y);p.jv+=0.075*strength*Math.exp(-distance/300);continue;}const delta=Vector.sub(p.body.position,{x,y}),distance=Math.max(40,Vector.magnitude(delta)),direction=Vector.normalise(delta);Body.applyForce(p.body,p.body.position,Vector.mult(direction,p.body.mass*0.018*strength*Math.exp(-distance/650)));Body.setAngularVelocity(p.body,clamp(p.body.angularVelocity+(Math.random()-0.5)*0.12*strength,-0.3,0.3));}};
+ const shake=()=>impulse(win.innerWidth/2,win.innerHeight/2,2);
+ const down=event=>{
+  if(event.target?.closest?.(excluded))return;
+  if(mode==='chaos2')impulse(event.clientX,event.clientY,0.65);
+  for(const p of pieces){if(p.el===event.target||p.el.contains(event.target)){p.held=true;if(mode==='jelly'){p.jv+=0.14;p.j=clamp(p.j+0.15,-0.4,0.4);impulse(event.clientX,event.clientY,0.5);}else Body.setStatic(p.body,true);}}
+ };
+ const up=()=>{for(const p of pieces){if(!p.held)continue;p.held=false;if(mode==='jelly')p.jv-=0.13;else Body.setStatic(p.body,false);}};
+ const orientation=event=>{if(Number.isFinite(event.beta)&&Number.isFinite(event.gamma)){gravity=tiltGravity(event.beta,event.gamma,win.screen?.orientation?.angle||0);}};
+ let lastShake=0;
+ const motion=event=>{const a=event.acceleration;if(!a)return;const magnitude=Math.hypot(a.x||0,a.y||0,a.z||0);if(magnitude>9&&now()-lastShake>350){lastShake=now();shake();}};
+ const tick=time=>{
+  if(disposed)return;
+  frame=win.requestAnimationFrame(tick);
+  if(doc.hidden){last=time;return;}
+  const delta=last?Math.min(32,time-last):16.667;
+  if(delta<15)return;
+  last=time;
+  if(mode!=='jelly'){
+   engine.gravity.x=gravity.x;engine.gravity.y=gravity.y;engine.gravity.scale=mode==='chaos2'?0.00018:0.001;
+   if(mode==='chaos2'){for(const p of pieces)if(!p.held)Body.applyForce(p.body,p.body.position,{x:Math.sin(time/1700+p.x)*p.body.mass*0.000045,y:Math.cos(time/2100+p.y)*p.body.mass*0.000045});}
+   Engine.update(engine,Math.min(delta,1000/60));
+  }
+  for(const p of pieces){
+   if(!p.el.isConnected)continue;
+   if(mode==='jelly'){
+    p.jv+=(-p.j*0.18-(p.held?-0.02:0));p.jv*=0.82;p.j=clamp(p.j+p.jv,-0.42,0.42);
+    const wave=Math.sin(time/850+p.x*0.01)*0.008;
+    p.el.style.setProperty('scale',`${1+p.j+wave} ${1-p.j*0.68-wave}`);p.el.style.setProperty('rotate',`${p.j*11}deg`);p.el.style.setProperty('border-radius',`${20+Math.abs(p.j)*80}% ${20+Math.abs(p.j)*35}%`);
+   }else{
+    const body=p.body,limitX=Math.max(0,(win.innerWidth-p.width)/2),limitY=Math.max(0,(win.innerHeight-p.height)/2);
+    if(!Number.isFinite(body.position.x)||!Number.isFinite(body.position.y)){Body.setPosition(body,{x:p.x,y:p.y});Body.setVelocity(body,{x:0,y:0});}
+    if(body.position.x< -p.width||body.position.x>win.innerWidth+p.width||body.position.y< -p.height||body.position.y>win.innerHeight+p.height){Body.setPosition(body,{x:clamp(body.position.x,win.innerWidth/2-limitX,win.innerWidth/2+limitX),y:clamp(body.position.y,win.innerHeight/2-limitY,win.innerHeight/2+limitY)});Body.setVelocity(body,{x:0,y:0});}
+    // Fixed orientation keeps thumbnails and controls legible while their
+    // rigid bodies still collide and rotate naturally within a bounded angle.
+    const angle=clamp(body.angle,-0.55,0.55);if(angle!==body.angle){Body.setAngle(body,angle);Body.setAngularVelocity(body,body.angularVelocity*-0.35);}
+    const zoom=Number.parseFloat(doc.documentElement.style.zoom)||1;
+    p.el.style.setProperty('translate',`${(body.position.x-p.x)/zoom}px ${(body.position.y-p.y)/zoom}px`);p.el.style.setProperty('rotate',`${angle}rad`);
+   }
+  }
+ };
+ rebuild();frame=win.requestAnimationFrame(tick);
+ const observer=new win.MutationObserver(schedule);observer.observe(root,{childList:true,subtree:true});
+ doc.addEventListener('pointerdown',down,{passive:true});doc.addEventListener('pointerup',up,{passive:true});doc.addEventListener('pointercancel',up,{passive:true});
+ win.addEventListener('deviceorientation',orientation,{passive:true});win.addEventListener('devicemotion',motion,{passive:true});win.addEventListener('scroll',schedule,{passive:true,capture:true});win.addEventListener('resize',reset,{passive:true});win.addEventListener('blur',up);
+ return {shake,reset,destroy(){disposed=true;win.cancelAnimationFrame(frame);win.clearTimeout(scanTimer);observer.disconnect();doc.removeEventListener('pointerdown',down);doc.removeEventListener('pointerup',up);doc.removeEventListener('pointercancel',up);win.removeEventListener('deviceorientation',orientation);win.removeEventListener('devicemotion',motion);win.removeEventListener('scroll',schedule,true);win.removeEventListener('resize',reset);win.removeEventListener('blur',up);pieces.forEach(restore);Composite.clear(engine.world,false);Engine.clear(engine);},getPieces:()=>pieces};
+}

@@ -50,7 +50,7 @@ const VideoCard: React.FC<VideoCardProps> = ({ video, onClick, onSelectChannel, 
   };
 
   return (
-    <motion.div 
+    <motion.div data-physics-piece
       viewport={{ once: true, amount: 0.6 }}
       onViewportEnter={() => { if (!video.isShort) recordImpression(video.videoId); }}
       whileHover={{ y: -3 }}

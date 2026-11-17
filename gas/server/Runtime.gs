@@ -10,7 +10,7 @@ function doGet(e) {
   try {
     var release=GAS_RELEASE_.release,repo=GAS_RELEASE_.repo;
     var base='https://cdn.jsdelivr.net/gh/'+repo+'@'+release.revision+'/gas/web';
-    var config=JSON.stringify({base:base,js:base+'/'+release.entry,css:base+'/'+release.css,webAppUrl:ScriptApp.getService().getUrl(),route:e&&e.parameter&&/^\/(?!\/)/.test(e.parameter.route||'')?e.parameter.route:null}).replace(/</g,'\\u003c');
+    var config=JSON.stringify({base:base,js:base+'/'+release.entry,css:base+'/'+release.css,version:release.entry+':'+release.css+':'+release.serverHash,webAppUrl:ScriptApp.getService().getUrl(),route:e&&e.parameter&&/^\/(?!\/)/.test(e.parameter.route||'')?e.parameter.route:null}).replace(/</g,'\\u003c');
     stage='HTML';
     // Remote HTML is static; replace its one JSON placeholder without a second
     // Apps Script template evaluation inside a dynamically loaded function.
@@ -106,6 +106,10 @@ function gasRequest(request) {
   try {
     if(!request||!/^[a-f0-9]{64}$/.test(request.session||'')||!gasRoute_(request.path))return gasResult_(400,{error:'通信先が無効です。'});
     var method=String(request.method||'GET').toUpperCase();
+    if(request.path==='/api/config/client-release'&&method==='GET'){
+      var release=GAS_RELEASE_.release,base='https://cdn.jsdelivr.net/gh/'+GAS_RELEASE_.repo+'@'+release.revision+'/gas/web';
+      return gasResult_(200,{base:base,js:base+'/'+release.entry,css:base+'/'+release.css,version:release.entry+':'+release.css+':'+release.serverHash});
+    }
     if(!/^(GET|HEAD|POST|PUT|PATCH|DELETE)$/.test(method))return gasResult_(405,{error:'この通信方法は使えません。'});
     if(request.body!==null&&request.body!==undefined&&(typeof request.body!=='string'||request.body.length>131072))return gasResult_(413,{error:'送信データが大きすぎます。'});
     var props=PropertiesService.getScriptProperties();

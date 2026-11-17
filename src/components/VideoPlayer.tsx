@@ -1181,6 +1181,7 @@ export default function VideoPlayer({
       <div className="flex-1 min-w-0 md:flex-[1_1_72%] lg:flex-[1_1_75%] xl:flex-[1_1_78%]">
         <div
           ref={playerContainerRef}
+          data-physics-piece
           tabIndex={0}
           className="w-full aspect-video bg-black rounded-2xl overflow-hidden shadow-xl border border-gray-200 relative max-h-[85vh] group outline-hidden focus:ring-2 focus:ring-blue-500/20"
         >

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, createContext, useContext, type ReactNode, type FormEvent } from 'react';
+import VisualModes from './VisualModes';
 
 type Item = { videoId: string; timestamp?: number; [key: string]: unknown };
 type User = { id: string; username: string; admin?: boolean };
@@ -195,7 +196,7 @@ export default function AccountGate({ children }: { children: ReactNode }) {
     try { authEpoch.current++; await api('/logout', 'POST', {});serverAuthenticated.current=false; active.current = null; localStorage.removeItem(SESSION_HINT_KEY); setUser(null); setPhase('login'); setMessage(''); }
     catch { setMessage('ログアウトできませんでした。'); }
   }
-  if (phase === 'ready' && user) return <AccountContext.Provider value={{ username: user.username, ...(user.admin?{isMaster:true}:{}), logout }}>{children}{message && <div role="status" className="fixed top-16 right-4 z-[200] bg-gray-900 text-white text-xs p-3 rounded-xl max-w-xs shadow-lg">{message}{!serverAuthenticated.current&&<button type="button" className="block mt-2 underline" onClick={()=>{setPassword('');setConfirm('');setPhase('login');setMessage('端末内のデータを保持したまま再接続します。');}}>再ログインして同期を再開</button>}</div>}</AccountContext.Provider>;
+  if (phase === 'ready' && user) return <AccountContext.Provider value={{ username: user.username, ...(user.admin?{isMaster:true}:{}), logout }}><VisualModes/>{children}{message && <div role="status" className="fixed top-16 right-4 z-[200] bg-gray-900 text-white text-xs p-3 rounded-xl max-w-xs shadow-lg">{message}{!serverAuthenticated.current&&<button type="button" className="block mt-2 underline" onClick={()=>{setPassword('');setConfirm('');setPhase('login');setMessage('端末内のデータを保持したまま再接続します。');}}>再ログインして同期を再開</button>}</div>}</AccountContext.Provider>;
 
   if(phase==='banned')return <main className="min-h-screen bg-gray-950 text-white flex items-center justify-center p-5"><section className="w-full max-w-md rounded-3xl border border-red-900 bg-gray-900 p-8 text-center shadow-2xl" role="alert"><div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-red-950 text-3xl" aria-hidden="true">!</div><h1 className="mt-5 text-2xl font-bold">このアカウントはBANされています</h1><p className="mt-3 text-sm leading-6 text-gray-300">この端末では、新しいアカウントの作成、ログアウト、アカウント切り替えなどの操作はできません。</p>{banRecord?.username&&<p className="mt-4 text-xs text-gray-500">対象アカウント: @{banRecord.username}</p>}<p className="mt-5 text-xs text-gray-500">BANが解除された場合は、この画面を開いたままにするか、しばらくしてから再読み込みしてください。</p></section></main>;
 

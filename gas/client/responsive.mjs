@@ -19,8 +19,9 @@ export function mediaForWidth(css,width){
  });
 }
 export function installResponsive(win=window,doc=document){
- let source='',style=null,pending=null,lastWidth=0;
+ let source='',style=null,pending=null,lastWidth=0,disposed=false;
  function apply(){
+  if(disposed)return;
   const metrics=viewportMetrics(win);
   win.__XEROX_GAS_VIEWPORT_WIDTH__=metrics.width;
   const html=doc.documentElement;
@@ -38,4 +39,5 @@ export function installResponsive(win=window,doc=document){
   for(const link of doc.querySelectorAll('link[rel="stylesheet"]'))if(link.href===win.__XEROX_GAS_ASSETS__?.css)link.disabled=true;
  }
  apply();win.addEventListener('resize',apply,{passive:true});win.addEventListener('orientationchange',apply,{passive:true});
+ return()=>{disposed=true;win.removeEventListener('resize',apply);win.removeEventListener('orientationchange',apply);style?.remove();};
 }
