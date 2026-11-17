@@ -1,9 +1,8 @@
 {
   "version": 1,
-  "entry": "app-B0K0J_nj.js",
-  "css": "style-gjZwSbch.css",
+  "entry": "app-D4gaYR6t.js",
+  "css": "style-CsATQru6.css",
   "server": "server-runtime.json",
-  "serverHash": "3e38b3a8174bfe333446314b4d2d0f33dcc59b62143f0cf1ee968f62a26eb7e1",
-  "source": "db1ebcfb5b06d48edaddfc4fd19fdf938c890556",
-  "revision": "82f7ec973f01dd87d25a1629cf4b0bdc1f0d2c8a"
+  "serverHash": "3455db7f95d80b999ad60bb1401f85e9134625d79f0b87c108c36356535861b6",
+  "source": "7bdea1041ea58db8afa7f6cd6fd0e3e7d572a2b8"
 }
