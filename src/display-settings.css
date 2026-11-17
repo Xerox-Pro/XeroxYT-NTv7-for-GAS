@@ -7,6 +7,11 @@
 .video-player-size{max-width:1200px;margin-inline:auto}
 .app-icon-dark{display:none!important}html[data-theme=dark] .app-icon-light{display:none!important}html[data-theme=dark] .app-icon-dark{display:block!important}
 html[data-theme=dark] .shorts-viewer,html[data-theme=dark] .shorts-scroll,html[data-theme=dark] .shorts-feed-end,html[data-theme=dark] .shorts-feed-retry{background:#0f0f0f;color:#aaa}
+html[data-theme=dark] .shorts-side-actions{color:#f1f1f1}
+html[data-theme=dark] .shorts-side-actions button>span{background:#272727;color:#f1f1f1}
+html[data-theme=dark] .shorts-side-actions button:hover>span{background:#393939}
+html[data-theme=dark] .shorts-side-actions button[aria-pressed=true]>span{background:#e5e5e5;color:#171717}
+html[data-theme=dark] .shorts-shelf{border-color:#303030}
 html[data-theme=dark] .animate-shimmer{background:linear-gradient(90deg,#242424 25%,#303030 50%,#242424 75%);background-size:200% 100%}
 html[data-theme=dark] section[aria-label="システム管理"]{background:#181818;border-color:#303030;box-shadow:none;border-radius:14px}
 html[data-theme=dark] section[aria-label="システム管理"] th{color:#aaa;font-weight:500;border-color:#303030}

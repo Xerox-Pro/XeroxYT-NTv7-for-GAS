@@ -227,6 +227,10 @@ export default function MainApp({socialContent}:{socialContent?:React.ReactNode}
       document.title = '履歴 - XeroxYT-NTv7 for GAS';
     } else if (view === 'system') {
       document.title = 'システム設定 - XeroxYT-NTv7 for GAS';
+    } else if (view === 'settings') {
+      document.title = '表示・再生設定 - XeroxYT-NTv7 for GAS';
+    } else if (view === 'announcements') {
+      document.title = 'お知らせ - XeroxYT-NTv7 for GAS';
     } else if (view === 'license') {
       document.title = 'ライセンス & 製作者クレジット - XeroxYT-NTv7 for GAS';
     }
