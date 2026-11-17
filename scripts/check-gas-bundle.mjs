@@ -39,6 +39,10 @@ w.google={script:{get run(){
  return {withSuccessHandler(fn){success=fn;return this;},withFailureHandler(){return this;},gasRequest(request){
   calls.push(request);
   const session=request.path==='/api/account/session';
+  if(request.path.startsWith('/api/account/dm')){
+   const data=request.path==='/api/account/dm/profile'?{nickname:'テスト表示名'}:request.path==='/api/account/dm'?{threads:[{id:'11111111-1111-4111-8111-111111111111',status:'accepted',kind:'normal',label:'テストの会話',updatedAt:1}]}:request.path==='/api/account/dm/rooms'?{rooms:[]}:{messages:[{id:'message-one',text:'こんにちは、DMテストです',mine:false,createdAt:Date.now()}]};
+   w.setTimeout(()=>success({status:200,body:JSON.stringify(data),headers:{'content-type':'application/json'}}),0);return;
+  }
   if(request.path.startsWith('/api/recommendations?')&&signedIn&&!sessionRejected){
    const page=Number(new URL('https://fixture.test'+request.path).searchParams.get('page'));
    const failed=page===2&&failSecond;if(failed)failSecond=false;
@@ -92,6 +96,10 @@ try{
  assert.ok(w.localStorage.getItem('xerox_site_session_hint'));
  w.location.hash='/messages';
  await until(()=>w.document.querySelector('.messages-page'));
+ await until(()=>[...w.document.querySelectorAll('.messages-thread')].some(node=>node.textContent.includes('テストの会話')));
+ [...w.document.querySelectorAll('.messages-thread')].find(node=>node.textContent.includes('テストの会話')).click();
+ await until(()=>w.document.querySelector('textarea[aria-label="メッセージ本文"]'));
+ await until(()=>w.document.body.textContent.includes('こんにちは、DMテストです'));
  assert.equal(w.document.querySelector('.messages-page').getAttribute('role'),null,'DM must be a page, not a floating dialog');
  const beforeUpdate=w.localStorage.getItem('xerox_last_account_id');
  await w.__XEROX_GAS_BEFORE_UPDATE__();

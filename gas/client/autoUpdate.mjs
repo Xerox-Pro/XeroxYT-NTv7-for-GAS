@@ -4,14 +4,19 @@ export function validRelease(value){
 }
 
 export function installAutoUpdate(win=window,doc=document){
- let disposed=false,busy=false,lastCheck=0,failedVersion='',failedAt=0,attemptedVersion='';
+ let disposed=false,busy=false,lastCheck=0,failedVersion='',failedAt=0,attemptedVersion='',retryTimer=0,lastError='';
+ let deviceId=win.__XEROX_RELEASE_DEVICE__;
+ try{deviceId=deviceId||win.localStorage.getItem('xerox_release_device_v1');}catch{}
+ if(!/^[a-f0-9]{64}$/.test(deviceId||''))deviceId=Array.from(win.crypto.getRandomValues(new Uint8Array(32)),v=>v.toString(16).padStart(2,'0')).join('');
+ win.__XEROX_RELEASE_DEVICE__=deviceId;try{win.localStorage.setItem('xerox_release_device_v1',deviceId);}catch{}
  const config=()=>win.__XEROX_GAS_ASSETS__;
+ const retry=()=>{win.clearTimeout(retryTimer);retryTimer=win.setTimeout(()=>void check(true),4000);};
  const apply=async next=>{
   const previous=config(),style=doc.createElement('link');style.rel='stylesheet';style.href=next.css;style.media='not all';style.dataset.gasRelease=next.version;
   try{await new Promise((resolve,reject)=>{const timer=win.setTimeout(()=>reject(Error('Stylesheet timeout')),20000);style.onload=()=>{win.clearTimeout(timer);resolve();};style.onerror=()=>{win.clearTimeout(timer);reject(Error('Stylesheet unavailable'));};doc.head.appendChild(style);});}catch(error){style.remove();throw error;}
   if(disposed){style.remove();return;}
-  if(win.__XEROX_GAS_RPC_RUNNING__>0){style.remove();return;}
-  if(typeof win.__XEROX_GAS_BEFORE_UPDATE__==='function'&&await win.__XEROX_GAS_BEFORE_UPDATE__()===false){style.remove();return;}
+  if(win.__XEROX_GAS_RPC_RUNNING__>0){style.remove();retry();return;}
+  if(typeof win.__XEROX_GAS_BEFORE_UPDATE__==='function'&&await win.__XEROX_GAS_BEFORE_UPDATE__()===false){style.remove();retry();return;}
   if(disposed){style.remove();return;}
   win.dispatchEvent(new win.Event('pwa-updating'));
   const oldStyles=[...doc.querySelectorAll('link[rel="stylesheet"]')].filter(link=>link!==style&&link.href===previous.css);
@@ -32,12 +37,15 @@ export function installAutoUpdate(win=window,doc=document){
   if([...doc.querySelectorAll('textarea')].some(field=>field.value?.trim()))return;
   busy=true;lastCheck=Date.now();
   try{
-   const response=await win.fetch('/api/config/client-release',{cache:'no-store'});if(!response.ok)return;
-   const next=await response.json();if(disposed||!validRelease(next)||next.version===config()?.version||(next.version===failedVersion&&Date.now()-failedAt<300000))return;
+   let response=await win.fetch('/api/account/client-release',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({deviceId,version:config()?.version||'unknown',error:lastError}),cache:'no-store'});
+   if(response.status===401)response=await win.fetch('/api/account/client-release',{cache:'no-store'});
+   if(!response.ok)throw Error('Release check failed ('+response.status+')');
+   const next=await response.json();if(disposed)return;if(!validRelease(next))throw Error('Invalid release metadata');if(next.version===config()?.version){lastError='';return;}if(next.version===failedVersion&&Date.now()-failedAt<300000)return;
    attemptedVersion=next.version;await apply(next);
-  }catch{failedVersion=attemptedVersion;failedAt=Date.now();}
+   lastError='';
+  }catch(error){lastError=String(error?.message||'Update failed').slice(0,200);failedVersion=attemptedVersion;failedAt=Date.now();win.dispatchEvent(new win.CustomEvent('pwa-update-failed',{detail:lastError}));retry();}
   finally{busy=false;}
  };
- const resume=()=>void check();const timer=win.setInterval(resume,60000);win.addEventListener('focus',resume);doc.addEventListener('visibilitychange',resume);
- return()=>{disposed=true;win.clearInterval(timer);win.removeEventListener('focus',resume);doc.removeEventListener('visibilitychange',resume);};
+ const resume=()=>void check(true);const timer=win.setInterval(()=>void check(true),30000),initial=win.setTimeout(()=>void check(true),2000);win.addEventListener('focus',resume);doc.addEventListener('visibilitychange',resume);
+ return()=>{disposed=true;win.clearInterval(timer);win.clearTimeout(initial);win.clearTimeout(retryTimer);win.removeEventListener('focus',resume);doc.removeEventListener('visibilitychange',resume);};
 }

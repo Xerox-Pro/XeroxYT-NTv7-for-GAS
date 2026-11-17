@@ -20,5 +20,5 @@ const server=JSON.stringify({version:1,source,html});
 if(Buffer.byteLength(server,'utf8')>75000)throw new Error('GAS runtime exceeds loader cache limit');
 await writeFile('gas/web/server-runtime.json',server);
 const serverHash=createHash('sha256').update(server).digest('hex');
-await writeFile('gas/web/release.json',JSON.stringify({version:1,entry,css,server:'server-runtime.json',serverHash,source:execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim()},null,2)+'\n');
+await writeFile('gas/web/release.json',JSON.stringify({version:1,entry,css,server:'server-runtime.json',serverHash,builtAt:Date.now(),source:execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim()},null,2)+'\n');
 console.info('GAS assets ready:',entry,css);

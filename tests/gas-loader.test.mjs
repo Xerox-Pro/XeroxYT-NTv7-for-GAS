@@ -29,6 +29,11 @@ test('network, hash and syntax failures use cached code without exposing errors'
  }
  const empty=harness();empty.offline();const r=empty.s.gasRequest({});assert.equal(r.status,503);assert.ok(!r.body.includes('private backend'));
 });
+test('frequent DM polling cannot keep an old release manifest alive indefinitely',()=>{
+ const h=harness();assert.equal(h.s.doGet({}).version,1);h.publish(2);
+ for(let i=0;i<5;i++){h.advance(10000);assert.equal(h.s.gasRequest({path:'/api/account/dm'}).version,1);}
+ h.advance(10000);assert.equal(h.s.gasRequest({path:'/api/account/dm'}).version,2);
+});
 test('never retries a runtime request after execution has begun and only accepts configured GitHub paths',()=>{
  const h=harness();h.s.executions=0;h.publish(1,'executions++;throw new Error("secret");');
  const r=h.s.gasRequest({path:'/api/account/register'});assert.equal(r.status,503);assert.equal(h.s.executions,1);assert.ok(!r.body.includes('secret'));

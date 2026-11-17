@@ -31,7 +31,8 @@ function gasModule_() {
   var scope=gasDigest_(repo+'@'+ref),lastKey='xygr:last:'+scope;
   try {
     var manifestKey='xygr:manifest:'+scope;
-    var manifestText=cache.get(manifestKey)||gasFetchText_('https://raw.githubusercontent.com/'+repo+'/'+ref+'/gas/web/release.json?t='+Math.floor(Date.now()/60000));
+    var manifestText=cache.get(manifestKey),manifestFetched=false;
+    if(!manifestText){manifestText=gasFetchText_('https://raw.githubusercontent.com/'+repo+'/'+ref+'/gas/web/release.json?t='+Math.floor(Date.now()/60000));manifestFetched=true;}
     var release=JSON.parse(manifestText);
     if(release.version!==1||!/^[a-f0-9]{40}$/.test(release.revision)||release.server!=='server-runtime.json'||!/^[a-f0-9]{64}$/.test(release.serverHash)||!/^app-[\w-]+\.js$/.test(release.entry)||!/^[\w-]+\.css$/.test(release.css))throw new Error('Invalid release');
     var sourceKey='xygr:source:'+release.serverHash;
@@ -39,7 +40,7 @@ function gasModule_() {
     if(gasDigest_(body)!==release.serverHash)throw new Error('Runtime hash mismatch');
     var context={repo:repo,release:release};
     var runtime=gasCompile_(JSON.parse(body),context);
-    cache.put(manifestKey,manifestText,60);
+    if(manifestFetched)cache.put(manifestKey,manifestText,60);
     cache.put(sourceKey,body,21600);
     cache.put(lastKey,JSON.stringify({body:body,context:context}),21600);
     return runtime;

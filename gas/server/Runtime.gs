@@ -107,8 +107,9 @@ function gasRequest(request) {
     if(!request||!/^[a-f0-9]{64}$/.test(request.session||'')||!gasRoute_(request.path))return gasResult_(400,{error:'通信先が無効です。'});
     var method=String(request.method||'GET').toUpperCase();
     if(request.path==='/api/config/client-release'&&method==='GET'){
-      var release=GAS_RELEASE_.release,base='https://cdn.jsdelivr.net/gh/'+GAS_RELEASE_.repo+'@'+release.revision+'/gas/web';
-      return gasResult_(200,{base:base,js:base+'/'+release.entry,css:base+'/'+release.css,version:release.entry+':'+release.css+':'+release.serverHash});
+      var updateProps=PropertiesService.getScriptProperties(),updateRepo=updateProps.getProperty('ASSET_REPO')||'Xerox-Pro/XeroxYT-NTv7-for-GAS',updateRef=updateProps.getProperty('RUNTIME_REF')||updateProps.getProperty('ASSET_BRANCH')||'gas-runtime';
+      CacheService.getScriptCache().remove('xygr:manifest:'+gasHash_(updateRepo+'@'+updateRef));
+      request=Object.assign({},request,{path:'/api/account/client-release'});
     }
     if(!/^(GET|HEAD|POST|PUT|PATCH|DELETE)$/.test(method))return gasResult_(405,{error:'この通信方法は使えません。'});
     if(request.body!==null&&request.body!==undefined&&(typeof request.body!=='string'||request.body.length>131072))return gasResult_(413,{error:'送信データが大きすぎます。'});
