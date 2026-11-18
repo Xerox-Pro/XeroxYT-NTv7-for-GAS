@@ -22,7 +22,7 @@ export function rpcRequest(request,signal,run=globalThis.google?.script?.run){
  });
 }
 export function shouldBundleSidecar(path,method){
- return method==='GET'&&/^\\/api\\/(?:recommendations|trending|search|suggestions|video|channel|channels|home|mix|shorts|shorts-ranking|user|playlists|playlist|limits|account\\/(?:session|history))(?:[/?]|$)/.test(path);
+ return method==='GET'&&/^\/api\/(?:recommendations|trending|search|suggestions|video|channel|channels|home|mix|shorts|shorts-ranking|user|playlists|playlist|limits|account\/(?:session|history))(?:[/?]|$)/.test(path);
 }
 export function installBridge(){
  const nativeFetch=window.fetch.bind(window),token=sessionToken();
