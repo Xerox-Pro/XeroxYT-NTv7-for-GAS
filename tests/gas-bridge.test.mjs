@@ -32,9 +32,12 @@ test('device cookie restores a missing local token and blocked storage does not 
 test('sidecar is only requested alongside normal data GET, never a background poll',()=>{
  assert.equal(shouldBundleSidecar('/api/video/abc','GET'),true);
  assert.equal(shouldBundleSidecar('/api/search','GET'),true);
- assert.equal(shouldBundleSidecar('/api/account/session','GET'),true);
+ assert.equal(shouldBundleSidecar('/api/user/feed/home','GET'),true);
+ assert.equal(shouldBundleSidecar('/api/shorts-ranking','GET'),true);
+ assert.equal(shouldBundleSidecar('/api/account/session','GET'),false);
  assert.equal(shouldBundleSidecar('/api/account/dm','GET'),false);
  assert.equal(shouldBundleSidecar('/api/account/visual-mode','GET'),false);
  assert.equal(shouldBundleSidecar('/api/auth/poll','GET'),false);
+ assert.equal(shouldBundleSidecar('/api/instagram/public/feed','GET'),false);
  assert.equal(shouldBundleSidecar('/api/video/abc','POST'),false);
 });
