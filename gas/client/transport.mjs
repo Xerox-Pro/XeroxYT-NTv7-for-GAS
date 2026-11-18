@@ -26,8 +26,8 @@ export function createRpcTransport(send,{now=Date.now,maxRunning=6}={}){
  return function dispatch(request,signal){
   if(signal?.aborted)return Promise.reject(cancelled(signal));
   if(request.method!=='GET'){epoch++;cache.clear();}
-  const ttl=request.method==='GET'?lifetime(request.path):0;
-  const key=request.method==='GET'?JSON.stringify([epoch,request.session,request.path,request.headers]):null;
+  const ttl=request.method==='GET'&&!request.sidecar?lifetime(request.path):0;
+  const key=request.method==='GET'?JSON.stringify([epoch,request.session,request.path,request.headers,request.sidecar===true]):null;
   const saved=key&&cache.get(key);
   if(saved&&saved.expires>now())return Promise.resolve(saved.value);
   let entry=key&&inflight.get(key);
