@@ -11,10 +11,13 @@ export default function VisualModes(){
  const [sensorGranted,setSensorGranted]=useState(false);
  const requiresPermission=[(window as any).DeviceOrientationEvent,(window as any).DeviceMotionEvent].some(type=>typeof type?.requestPermission==='function');
  useEffect(()=>{
-  setMode('off');let disposed=false,busy=false;const abort=new AbortController();
-  const check=async()=>{if(busy||disposed||document.hidden)return;busy=true;try{const response=await fetch('/api/account/visual-mode',{credentials:'same-origin',cache:'no-store',signal:abort.signal});if(!response.ok)return;const data=await response.json();if(!disposed)setMode(['chaos','chaos2','jelly','spin'].includes(data.mode)?data.mode:'off');}catch{}finally{busy=false;}};
-  void check();const timer=setInterval(()=>void check(),30000);const refresh=()=>void check();window.addEventListener('focus',refresh);window.addEventListener('xerox-visual-mode-updated',refresh);document.addEventListener('visibilitychange',refresh);
-  return()=>{disposed=true;abort.abort();clearInterval(timer);window.removeEventListener('focus',refresh);window.removeEventListener('xerox-visual-mode-updated',refresh);document.removeEventListener('visibilitychange',refresh);};
+  setMode('off');
+  const apply=(event:Event)=>{
+   const next=(event as CustomEvent<{mode?:string}>).detail?.mode;
+   if(typeof next==='string')setMode(['chaos','chaos2','jelly','spin'].includes(next)?next as Mode:'off');
+  };
+  window.addEventListener('xerox-gas-sidecar',apply);
+  return()=>window.removeEventListener('xerox-gas-sidecar',apply);
  },[username]);
  useEffect(()=>{
   if(mode==='off')return;
