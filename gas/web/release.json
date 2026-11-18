@@ -3,9 +3,7 @@
   "entry": "app-DxVzjLBk.js",
   "css": "style-BhiYvWWh.css",
   "server": "server-runtime.json",
-  "serverHash": "b180a970205e7b37c212e0372712310872f08d36b78098ea1a2aae5cd3cbc49b",
-  "builtAt": 1794981490592,
-  "source": "bc287bf0ff423f247154455fd330710e262f10d4",
-  "revision": "d92e31a08d4c11715f48344f115c06b88fb9f8c5",
-  "publishedAt": 1794981496469
+  "serverHash": "4b19fc82bf5d69bc404334ee23670434ad9b2cef5cde6b8b37d6e86088c956e3",
+  "builtAt": 1794981527231,
+  "source": "be027c313c4a94c8cc3f31c1e51752722711e4c1"
 }
