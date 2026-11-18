@@ -30,3 +30,13 @@ test('queued feed requests take priority over metadata and writes invalidate cac
  const write=dispatch({...request('/api/account/logout'),method:'POST'});await flush();callbacks.shift()({status:200});await write;
  const fresh=dispatch(request());await flush();assert.equal(paths.at(-1),request().path);assert.equal(paths.length,5);callbacks.shift()({status:200});await fresh;
 });
+
+test('piggybacked status cannot be served from a stale metadata cache',async()=>{
+ let count=0;
+ const dispatch=createRpcTransport(async()=>({status:200,body:String(++count)}));
+ const req=request();
+ assert.equal((await dispatch(req)).body,'1');
+ assert.equal((await dispatch(req)).body,'1');
+ assert.equal((await dispatch({...req,sidecar:true})).body,'2');
+ assert.equal((await dispatch({...req,sidecar:true})).body,'3');
+});
