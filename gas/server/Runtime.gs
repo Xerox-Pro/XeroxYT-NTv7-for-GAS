@@ -139,8 +139,16 @@ function gasRequest(request) {
     var options={method:method.toLowerCase(),headers:headers,muteHttpExceptions:true,followRedirects:false,validateHttpsCertificates:true};
     if(!['GET','HEAD'].includes(method)&&request.body!=null)options.payload=request.body;
     var response,sidecar=null;
-    if(method==='GET'&&request.sidecar===true&&accountCookie&&typeof UrlFetchApp.fetchAll==='function'
-      &&!/^\/api\/account\/(?:dm|visual-mode|client-release)(?:[/?]|$)/.test(request.path)){
+    var shouldBundle=method==='GET'&&request.sidecar===true&&accountCookie
+      &&/^\/api\/(?:recommendations|trending|search|suggestions|video|channel|channels|home|mix|shorts|shorts-ranking|user|playlists|playlist|sync)(?:[/?]|$)/.test(request.path);
+    // Keep state on every YouTube response while avoiding 3 upstream status reads
+    // per video card. Cache is isolated by GAS browser session and account origin.
+    var sidecarKey=shouldBundle?'xyg:sidecar:'+gasHash_(request.session+account):'';
+    if(sidecarKey)try{
+      var savedSidecar=CacheService.getScriptCache().get(sidecarKey);
+      if(savedSidecar)sidecar=JSON.parse(savedSidecar);
+    }catch(_){}
+    if(shouldBundle&&!sidecar&&typeof UrlFetchApp.fetchAll==='function'){
       var metaHeaders={'Accept':'application/json','Origin':origin,'Cookie':accountCookie};
       if(secret)metaHeaders.Authorization='Bearer '+secret;
       var metaOptions={method:'get',headers:metaHeaders,muteHttpExceptions:true,followRedirects:false,validateHttpsCertificates:true};
@@ -158,6 +166,7 @@ function gasRequest(request) {
           if(typeof visual?.mode==='string')sidecar.mode=visual.mode;
           if(Array.isArray(messages?.threads))sidecar.threads=messages.threads.map(function(t){return {id:t.id,status:t.status,incoming:t.incoming,updatedAt:t.updatedAt,lastMine:t.lastMine,label:t.label};});
           if(Array.isArray(rooms?.rooms))sidecar.rooms=rooms.rooms.map(function(r){return {id:r.id,status:r.status,lastAt:r.lastAt,lastMine:r.lastMine,name:r.name};});
+          try{CacheService.getScriptCache().put(sidecarKey,JSON.stringify(sidecar),12);}catch(_){}
         }
       }catch(_){
         // Optional failures must not prevent video/search data.
@@ -181,7 +190,7 @@ function gasRequest(request) {
     var safeHeaders={};
     ['retry-after','x-daily-usage-token'].forEach(function(name){var value=gasHeader_(responseHeaders,name);if(value)safeHeaders[name]=gasSanitize_(String(value),secret?[api,account,secret]:[api,account]);});
     var result=gasResult_(status,data,safeHeaders);
-    if(sidecar)result.sidecar=gasSanitize_(sidecar,secret?[api,account,secret]:[api,account]);
+    if(sidecar&&status>=200&&status<300)result.sidecar=gasSanitize_(sidecar,secret?[api,account,secret]:[api,account]);
     return result;
   } catch (_) {
     // Upstream exceptions can contain private URLs, so never send raw exceptions.
