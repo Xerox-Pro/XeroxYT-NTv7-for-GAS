@@ -45,9 +45,6 @@ html[data-theme=dark] section[aria-label="システム管理"] input{background:
 @container video-grid (width >= 900px){
   [data-pref-thumbnail-size=small] .video-grid-region .mobile-video-grid{--video-columns:4}
 }
-@container video-grid (width >= 1240px){
-  [data-pref-thumbnail-size=large] .video-grid-region .mobile-video-grid{--video-columns:3}
-}
 html[data-pref-text-size=small] .video-card h3{font-size:12px!important}html[data-pref-text-size=large] .video-card h3{font-size:18px!important}
 html[data-pref-density=small] .mobile-video-grid{gap:16px 12px!important}html[data-pref-density=large] .mobile-video-grid{gap:52px 32px!important}
 html[data-pref-hide-shorts=true] a[href="/shorts"],html[data-pref-hide-shorts=true] .shorts-shelf{display:none!important}
