@@ -106,7 +106,7 @@ function gasSanitize_(value,hidden) {
 function gasJsonResponse_(response){
   try{
     if(!response||response.getResponseCode()!==200)return null;
-    if(!/application\/(?:json|[^;]+\\+json)/i.test(String(gasHeader_(response.getAllHeaders(),'content-type')||'')))return null;
+    if(!/application\/(?:json|[^;]+\+json)/i.test(String(gasHeader_(response.getAllHeaders(),'content-type')||'')))return null;
     var data=JSON.parse(response.getContentText());
     return data&&typeof data==='object'?data:null;
   }catch(_){return null;}
