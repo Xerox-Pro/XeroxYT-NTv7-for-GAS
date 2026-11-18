@@ -21,9 +21,13 @@ export function rpcRequest(request,signal,run=globalThis.google?.script?.run){
   run.withSuccessHandler(value=>finish(resolve,value)).withFailureHandler(()=>finish(reject,new Error('GASへの通信に失敗しました。時間を置いて再試行してください。'))).gasRequest(request);
  });
 }
+export function shouldBundleSidecar(path,method){
+ return method==='GET'&&/^\\/api\\/(?:recommendations|trending|search|suggestions|video|channel|channels|home|mix|shorts|shorts-ranking|user|playlists|playlist|limits|account\\/(?:session|history))(?:[/?]|$)/.test(path);
+}
 export function installBridge(){
  const nativeFetch=window.fetch.bind(window),token=sessionToken();
  const dispatch=createRpcTransport(request=>rpcRequest(request));
+ let lastSidecar=0;
  window.fetch=async(input,options={})=>{
   const raw=input instanceof Request?input.url:String(input);
   const url=new URL(raw,location.href);
@@ -37,7 +41,11 @@ export function installBridge(){
   if(body!=null&&typeof body!=='string')throw new Error('GAS版ではJSON形式で送信してください。');
   if(!['GET','HEAD'].includes(method)){if(!headers['content-type'])headers['content-type']='application/json';if(!body)body='{}';}
   window.__XEROX_GAS_RPC_RUNNING__=(window.__XEROX_GAS_RPC_RUNNING__||0)+1;
-  let result;try{result=await dispatch({session:token,path:url.pathname+url.search,method,headers,body:body??null},signal);}finally{window.__XEROX_GAS_RPC_RUNNING__=Math.max(0,(window.__XEROX_GAS_RPC_RUNNING__||1)-1);}
+  // Only normal data requests can piggyback state; no background timer.
+  const now=Date.now(),sidecar=shouldBundleSidecar(url.pathname,method)&&(now-lastSidecar>=20000||lastSidecar===0);
+  if(sidecar)lastSidecar=now;
+  let result;try{result=await dispatch({session:token,path:url.pathname+url.search,method,headers,body:body??null,sidecar},signal);}finally{window.__XEROX_GAS_RPC_RUNNING__=Math.max(0,(window.__XEROX_GAS_RPC_RUNNING__||1)-1);}
+  if(result?.sidecar)window.dispatchEvent(new CustomEvent('xerox-gas-sidecar',{detail:result.sidecar}));
   if(!result||!Number.isInteger(result.status))throw new Error('GASからの応答が不正です。');
   if(result.status===403||result.status===429){try{const data=JSON.parse(result.body);if(data.code==='ACCOUNT_BANNED')window.dispatchEvent(new CustomEvent('xerox-account-banned'));if(data.code==='ACCOUNT_TIMEOUT')window.dispatchEvent(new CustomEvent('xerox-account-timeout',{detail:data}));}catch{}}
   return new Response([204,205,304].includes(result.status)?null:result.body,{status:result.status,headers:result.headers});
