@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {webcrypto} from 'node:crypto';
-import {sessionToken,rpcRequest,installBridge} from '../gas/client/bridge.mjs';
+import {sessionToken,rpcRequest,installBridge,shouldBundleSidecar} from '../gas/client/bridge.mjs';
 test('persistent random session token is separate for each storage',()=>{
  const storage=()=>{const values=new Map();return {getItem:k=>values.get(k),setItem:(k,v)=>values.set(k,v)};};const a=storage(),b=storage();assert.match(sessionToken(a,webcrypto),/^[a-f0-9]{64}$/);assert.equal(sessionToken(a,webcrypto),sessionToken(a,webcrypto));assert.notEqual(sessionToken(a,webcrypto),sessionToken(b,webcrypto));
 });
@@ -27,4 +27,14 @@ test('device cookie restores a missing local token and blocked storage does not 
  assert.equal(sessionToken(storage,webcrypto,cookies),token);assert.ok(cookies.cookie.includes('Partitioned'));
  const blocked={getItem(){throw new Error('blocked');},setItem(){throw new Error('blocked');}};
  assert.equal(sessionToken(blocked,webcrypto,{cookie:'__Host-xy_gas_device='+token}),token);
+});
+
+test('sidecar is only requested alongside normal data GET, never a background poll',()=>{
+ assert.equal(shouldBundleSidecar('/api/video/abc','GET'),true);
+ assert.equal(shouldBundleSidecar('/api/search','GET'),true);
+ assert.equal(shouldBundleSidecar('/api/account/session','GET'),true);
+ assert.equal(shouldBundleSidecar('/api/account/dm','GET'),false);
+ assert.equal(shouldBundleSidecar('/api/account/visual-mode','GET'),false);
+ assert.equal(shouldBundleSidecar('/api/auth/poll','GET'),false);
+ assert.equal(shouldBundleSidecar('/api/video/abc','POST'),false);
 });
