@@ -106,7 +106,7 @@ function gasSanitize_(value,hidden) {
 function gasJsonResponse_(response){
   try{
     if(!response||response.getResponseCode()!==200)return null;
-    if(!/application\\/(?:json|[^;]+\\+json)/i.test(String(gasHeader_(response.getAllHeaders(),'content-type')||'')))return null;
+    if(!/application\/(?:json|[^;]+\\+json)/i.test(String(gasHeader_(response.getAllHeaders(),'content-type')||'')))return null;
     var data=JSON.parse(response.getContentText());
     return data&&typeof data==='object'?data:null;
   }catch(_){return null;}
@@ -140,7 +140,7 @@ function gasRequest(request) {
     if(!['GET','HEAD'].includes(method)&&request.body!=null)options.payload=request.body;
     var response,sidecar=null;
     if(method==='GET'&&request.sidecar===true&&accountCookie&&typeof UrlFetchApp.fetchAll==='function'
-      &&!/^\\/api\\/account\\/(?:dm|visual-mode|client-release)(?:[/?]|$)/.test(request.path)){
+      &&!/^\/api\/account\/(?:dm|visual-mode|client-release)(?:[/?]|$)/.test(request.path)){
       var metaHeaders={'Accept':'application/json','Origin':origin,'Cookie':accountCookie};
       if(secret)metaHeaders.Authorization='Bearer '+secret;
       var metaOptions={method:'get',headers:metaHeaders,muteHttpExceptions:true,followRedirects:false,validateHttpsCertificates:true};
