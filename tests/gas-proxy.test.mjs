@@ -102,6 +102,9 @@ test('authenticated normal GET includes mode and DM state without extra GAS exec
  for(const call of h.calls.slice(2))assert.equal(call.headers.Cookie,'__Host-xy_session='+cookie);
  assert.equal(JSON.stringify(result).includes(cookie),false);
  const before=h.calls.length;
+ const repeated=h.request('/api/video/another',session,{sidecar:true});
+ assert.equal(repeated.sidecar.mode,'jelly');
+ assert.equal(h.calls.length,before+1,'cached sidecar avoids further status subrequests');
  h.request('/api/search?q=music','b'.repeat(64),{sidecar:true});
- assert.equal(h.calls.length,before+1);
+ assert.equal(h.calls.length,before+2,'no data is shared with another session');
 });
