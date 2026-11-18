@@ -1,11 +1,9 @@
 {
   "version": 1,
   "entry": "app-BlMREDKM.js",
-  "css": "style-Da-gw94s.css",
+  "css": "style-BhiYvWWh.css",
   "server": "server-runtime.json",
   "serverHash": "d806b7925a5a4d2cdf7b1b1f3028744e2ab65128763bba53ac93a06fcd825ad6",
-  "builtAt": 1794961349068,
-  "source": "2287e91164394d56a28795774726994efe0131ab",
-  "revision": "6f5ad00f863958b9e87e2869b88d904c5c9b193b",
-  "publishedAt": 1794961354365
+  "builtAt": 1794961379299,
+  "source": "c992dc79349b35daecbcbce4199b1dfe3b0ad644"
 }
