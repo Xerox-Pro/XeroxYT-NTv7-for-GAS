@@ -22,12 +22,12 @@ export function rpcRequest(request,signal,run=globalThis.google?.script?.run){
  });
 }
 export function shouldBundleSidecar(path,method){
- return method==='GET'&&/^\/api\/(?:recommendations|trending|search|suggestions|video|channel|channels|home|mix|shorts|shorts-ranking|user|playlists|playlist|limits|account\/(?:session|history))(?:[/?]|$)/.test(path);
+ // Only user-facing YouTube data reads. Account/auth and social RPCs stay untouched.
+ return method==='GET'&&/^\/api\/(?:recommendations|trending|search|suggestions|video|channel|channels|home|mix|shorts|shorts-ranking|user|playlists|playlist|sync)(?:[/?]|$)/.test(path);
 }
 export function installBridge(){
  const nativeFetch=window.fetch.bind(window),token=sessionToken();
  const dispatch=createRpcTransport(request=>rpcRequest(request));
- let lastSidecar=0;
  window.fetch=async(input,options={})=>{
   const raw=input instanceof Request?input.url:String(input);
   const url=new URL(raw,location.href);
@@ -42,8 +42,7 @@ export function installBridge(){
   if(!['GET','HEAD'].includes(method)){if(!headers['content-type'])headers['content-type']='application/json';if(!body)body='{}';}
   window.__XEROX_GAS_RPC_RUNNING__=(window.__XEROX_GAS_RPC_RUNNING__||0)+1;
   // Only normal data requests can piggyback state; no background timer.
-  const now=Date.now(),sidecar=shouldBundleSidecar(url.pathname,method)&&(now-lastSidecar>=20000||lastSidecar===0);
-  if(sidecar)lastSidecar=now;
+  const sidecar=shouldBundleSidecar(url.pathname,method);
   let result;try{result=await dispatch({session:token,path:url.pathname+url.search,method,headers,body:body??null,sidecar},signal);}finally{window.__XEROX_GAS_RPC_RUNNING__=Math.max(0,(window.__XEROX_GAS_RPC_RUNNING__||1)-1);}
   if(result?.sidecar)window.dispatchEvent(new CustomEvent('xerox-gas-sidecar',{detail:result.sidecar}));
   if(!result||!Number.isInteger(result.status))throw new Error('GASからの応答が不正です。');
