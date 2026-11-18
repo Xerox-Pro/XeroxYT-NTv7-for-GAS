@@ -82,3 +82,26 @@ test('a session-check 401 preserves the stored cookie, and renewed cookies persi
  h.reply({status:401,headers:{'Content-Type':'application/json'},body:{error:'unauthorized'}});
  const count=h.persistent.size;h.request('/api/account/session');assert.equal(h.persistent.size,count);
 });
+
+test('authenticated normal GET includes mode and DM state without extra GAS executions',()=>{
+ const h=harness(),session='a'.repeat(64),cookie='e'.repeat(64);
+ h.sandbox.UrlFetchApp.fetchAll=requests=>requests.map(({url,...options})=>h.sandbox.UrlFetchApp.fetch(url,options));
+ h.reply({status:200,headers:{'Content-Type':'application/json','Set-Cookie':'__Host-xy_session='+cookie+'; Max-Age=2592000'},body:{user:{id:'one'}}});
+ h.request('/api/account/login',session,{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
+ h.reply({status:200,headers:{'Content-Type':'application/json'},body:{mode:'jelly',threads:[{id:'thread',status:'accepted',updatedAt:10,lastMine:false,label:'DM'}],rooms:[{id:'room',status:'joined',lastAt:12,lastMine:false,name:'Group'}]}});
+ const result=h.request('/api/search?q=music',session,{sidecar:true});
+ assert.equal(result.status,200);
+ assert.equal(result.sidecar.mode,'jelly');
+ assert.equal(result.sidecar.threads[0].id,'thread');
+ assert.equal(result.sidecar.rooms[0].id,'room');
+ assert.equal(h.calls.length,5);
+ assert.equal(h.calls[1].url,'https://private.example.com/api/search?q=music');
+ assert.equal(h.calls[2].url,'https://account.example.com/api/account/visual-mode');
+ assert.equal(h.calls[3].url,'https://account.example.com/api/account/dm');
+ assert.equal(h.calls[4].url,'https://account.example.com/api/account/dm/rooms');
+ for(const call of h.calls.slice(2))assert.equal(call.headers.Cookie,'__Host-xy_session='+cookie);
+ assert.equal(JSON.stringify(result).includes(cookie),false);
+ const before=h.calls.length;
+ h.request('/api/search?q=music','b'.repeat(64),{sidecar:true});
+ assert.equal(h.calls.length,before+1);
+});
