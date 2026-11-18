@@ -102,6 +102,15 @@ function gasSanitize_(value,hidden) {
   if(value&&typeof value==='object'){var out={};Object.keys(value).forEach(function(k){out[gasSanitize_(k,hidden)]=gasSanitize_(value[k],hidden);});return out;}
   return value;
 }
+// Optional state is bundled into the ordinary GAS RPC, never polled.
+function gasJsonResponse_(response){
+  try{
+    if(!response||response.getResponseCode()!==200)return null;
+    if(!/application\\/(?:json|[^;]+\\+json)/i.test(String(gasHeader_(response.getAllHeaders(),'content-type')||'')))return null;
+    var data=JSON.parse(response.getContentText());
+    return data&&typeof data==='object'?data:null;
+  }catch(_){return null;}
+}
 function gasRequest(request) {
   try {
     if(!request||!/^[a-f0-9]{64}$/.test(request.session||'')||!gasRoute_(request.path))return gasResult_(400,{error:'通信先が無効です。'});
@@ -123,12 +132,38 @@ function gasRequest(request) {
     ['content-type','accept-language','x-client-id','x-usage-token','x-client-usage'].forEach(function(name){var v=gasHeader_(request.headers,name);if(typeof v==='string'&&v.length<2048&&!/[\r\n]/.test(v))headers[name]=v;});
     var cookie=gasLoadCookie_(key);if(cookie)headers.Cookie=cookie;
     // The account cookie must also reach auth/user/social routes when origins differ.
-    if(target!==account){var accountCookie=gasLoadCookie_('xyg:'+gasHash_(request.session+account));if(accountCookie)headers.Cookie=accountCookie;}
+    var accountCookie=target===account?cookie:gasLoadCookie_('xyg:'+gasHash_(request.session+account));
+    if(accountCookie)headers.Cookie=accountCookie;
     var secret=props.getProperty('API_SHARED_SECRET');if(secret)headers.Authorization='Bearer '+secret;
     if(!['GET','HEAD'].includes(method)&&!/^application\/json(?:;|$)/i.test(headers['content-type']||''))return gasResult_(415,{error:'JSON形式で送信してください。'});
     var options={method:method.toLowerCase(),headers:headers,muteHttpExceptions:true,followRedirects:false,validateHttpsCertificates:true};
     if(!['GET','HEAD'].includes(method)&&request.body!=null)options.payload=request.body;
-    var response=UrlFetchApp.fetch(target+request.path,options);
+    var response,sidecar=null;
+    if(method==='GET'&&request.sidecar===true&&accountCookie&&typeof UrlFetchApp.fetchAll==='function'
+      &&!/^\\/api\\/account\\/(?:dm|visual-mode|client-release)(?:[/?]|$)/.test(request.path)){
+      var metaHeaders={'Accept':'application/json','Origin':origin,'Cookie':accountCookie};
+      if(secret)metaHeaders.Authorization='Bearer '+secret;
+      var metaOptions={method:'get',headers:metaHeaders,muteHttpExceptions:true,followRedirects:false,validateHttpsCertificates:true};
+      try{
+        var batch=UrlFetchApp.fetchAll([
+          Object.assign({url:target+request.path},options),
+          Object.assign({url:account+'/api/account/visual-mode'},metaOptions),
+          Object.assign({url:account+'/api/account/dm'},metaOptions),
+          Object.assign({url:account+'/api/account/dm/rooms'},metaOptions)
+        ]);
+        response=batch[0];
+        var visual=gasJsonResponse_(batch[1]),messages=gasJsonResponse_(batch[2]),rooms=gasJsonResponse_(batch[3]);
+        if(visual||messages||rooms){
+          sidecar={capturedAt:Date.now()};
+          if(typeof visual?.mode==='string')sidecar.mode=visual.mode;
+          if(Array.isArray(messages?.threads))sidecar.threads=messages.threads.map(function(t){return {id:t.id,status:t.status,incoming:t.incoming,updatedAt:t.updatedAt,lastMine:t.lastMine,label:t.label};});
+          if(Array.isArray(rooms?.rooms))sidecar.rooms=rooms.rooms.map(function(r){return {id:r.id,status:r.status,lastAt:r.lastAt,lastMine:r.lastMine,name:r.name};});
+        }
+      }catch(_){
+        // Optional failures must not prevent video/search data.
+        response=UrlFetchApp.fetch(target+request.path,options);
+      }
+    }else response=UrlFetchApp.fetch(target+request.path,options);
     var status=response.getResponseCode();
     if(status>=300&&status<400)return gasResult_(502,{error:'APIから想定外のリダイレクトが返されました。'});
     var responseHeaders=response.getAllHeaders();
@@ -145,7 +180,9 @@ function gasRequest(request) {
     if(secret)data=gasSanitize_(data,[secret]);
     var safeHeaders={};
     ['retry-after','x-daily-usage-token'].forEach(function(name){var value=gasHeader_(responseHeaders,name);if(value)safeHeaders[name]=gasSanitize_(String(value),secret?[api,account,secret]:[api,account]);});
-    return gasResult_(status,data,safeHeaders);
+    var result=gasResult_(status,data,safeHeaders);
+    if(sidecar)result.sidecar=gasSanitize_(sidecar,secret?[api,account,secret]:[api,account]);
+    return result;
   } catch (_) {
     // Upstream exceptions can contain private URLs, so never send raw exceptions.
     return gasResult_(502,{error:'GASからAPIに接続できませんでした。設定またはAPIの稼働状態を確認してください。',code:'GAS_UPSTREAM_FAILED'});
