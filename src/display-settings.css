@@ -33,14 +33,9 @@ html[data-theme=dark] section[aria-label="システム管理"] button{border-col
 html[data-theme=dark] section[aria-label="システム管理"] button[aria-pressed=true]{background:#343043;color:#e2dcff}
 html[data-theme=dark] section[aria-label="システム管理"] input{background:#101010;border-color:#383838}
 .video-grid-region{container:video-grid / inline-size}
-.video-grid-region .mobile-video-grid{grid-template-columns:repeat(var(--video-columns,1),minmax(0,1fr))}
+.video-grid-region .mobile-video-grid{grid-template-columns:repeat(var(--video-columns,2),minmax(0,1fr))}
+[data-pref-thumbnail-size=large] .video-grid-region .mobile-video-grid{--video-columns:1}
 /* Home inserts a full-width Shorts shelf every 12 cards. Use column counts that fit complete rows. */
-@container video-grid (width >= 420px){
-  [data-pref-thumbnail-size=small] .video-grid-region .mobile-video-grid{--video-columns:2}
-}
-@container video-grid (width >= 540px){
-  [data-pref-thumbnail-size=normal] .video-grid-region .mobile-video-grid{--video-columns:2}
-}
 @container video-grid (width >= 660px){
   [data-pref-thumbnail-size=small] .video-grid-region .mobile-video-grid{--video-columns:3}
 }
@@ -49,7 +44,6 @@ html[data-theme=dark] section[aria-label="システム管理"] input{background:
 }
 @container video-grid (width >= 900px){
   [data-pref-thumbnail-size=small] .video-grid-region .mobile-video-grid{--video-columns:4}
-  [data-pref-thumbnail-size=normal] .video-grid-region .mobile-video-grid{--video-columns:3}
 }
 @container video-grid (width >= 1240px){
   [data-pref-thumbnail-size=large] .video-grid-region .mobile-video-grid{--video-columns:3}
