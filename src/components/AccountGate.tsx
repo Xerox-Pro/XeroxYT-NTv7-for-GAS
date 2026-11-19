@@ -81,6 +81,7 @@ export default function AccountGate({ children }: { children: ReactNode }) {
   },[cachedUser]);
 
   useEffect(()=>{const banned=()=>lockBanned();window.addEventListener('xerox-account-banned',banned);return()=>window.removeEventListener('xerox-account-banned',banned);},[lockBanned]);
+  useEffect(()=>{const onSidecar=(event:Event)=>{if((event as CustomEvent).detail?.banned===true)window.dispatchEvent(new Event('xerox-account-banned'));};window.addEventListener('xerox-gas-sidecar',onSidecar);return()=>window.removeEventListener('xerox-gas-sidecar',onSidecar);},[]);
 
   const persist = (u: User) => localStorage.setItem(accountKey(u.id), JSON.stringify({...cache.current, savedAt: new Date().toISOString()}));
   const initialize = useCallback(async (u: User, importLegacy = false, background = false) => {
@@ -149,7 +150,7 @@ export default function AccountGate({ children }: { children: ReactNode }) {
     if(cachedUser)active.current=cachedUser;
     let cancelled=false,busy=false,lastCheck=0;
     const verify=async(force=false)=>{
-      if(cancelled||busy||(!force&&Date.now()-lastCheck<60000))return;
+      if(cancelled||busy||(!force&&Date.now()-lastCheck<300000))return;
       busy=true;lastCheck=Date.now();const epoch=authEpoch.current;
       try{
         const {user:existing}=await api('/session');
@@ -170,7 +171,7 @@ export default function AccountGate({ children }: { children: ReactNode }) {
     };
     const resume=()=>{if(!document.hidden)void verify();};
     void verify(true);
-    const interval=setInterval(resume,30000);
+    const interval=setInterval(resume,300000);
     window.addEventListener('online',resume);window.addEventListener('focus',resume);document.addEventListener('visibilitychange',resume);
     return ()=>{cancelled=true;active.current=null;clearInterval(interval);window.removeEventListener('online',resume);window.removeEventListener('focus',resume);document.removeEventListener('visibilitychange',resume);if(timer.current)clearTimeout(timer.current);};
   },[initialize,cachedUser,lockBanned]);
