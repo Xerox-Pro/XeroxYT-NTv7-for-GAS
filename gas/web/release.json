@@ -1,11 +1,9 @@
 {
   "version": 1,
-  "entry": "app-DLx83GjO.js",
+  "entry": "app-CTigKPfE.js",
   "css": "style-BhiYvWWh.css",
   "server": "server-runtime.json",
   "serverHash": "2fb623614c236bd97d68fec9a6b7180bac547293e67b6c146422433f1403f52b",
-  "builtAt": 1794981707358,
-  "source": "7d22dc526def0ca72bb73fdb072fb16badca9030",
-  "revision": "56852fba43be0879791c339a014e00f8cf54ac6a",
-  "publishedAt": 1794981713268
+  "builtAt": 1795064657348,
+  "source": "801199a6ed1fab34e19d0869ca0a82764c4c90b6"
 }
