@@ -3,9 +3,7 @@
   "entry": "app-CT6Xdvb0.js",
   "css": "style-BhiYvWWh.css",
   "server": "server-runtime.json",
-  "serverHash": "6afdc8248887b79430fa73c9384c6cac98c70c96c66df22b840dfa95fa6c2afc",
-  "builtAt": 1795065179053,
-  "source": "3191b6ad18807737807c077de9b91f856dcbf9bf",
-  "revision": "ecb6594524d93b1c90f290dafdc81b61b48fc5af",
-  "publishedAt": 1795065185148
+  "serverHash": "8f4f5227c849d8a9575eac5a0ea3a0de43588b560083b0a9d99851935ef45268",
+  "builtAt": 1795065292806,
+  "source": "b55e6385894f2f740269934d54b60c31db77f12b"
 }
