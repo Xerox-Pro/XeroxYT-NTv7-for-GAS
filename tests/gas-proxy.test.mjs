@@ -94,11 +94,9 @@ test('authenticated normal GET includes mode and DM state without extra GAS exec
  assert.equal(result.sidecar.mode,'jelly');
  assert.equal(result.sidecar.threads[0].id,'thread');
  assert.equal(result.sidecar.rooms[0].id,'room');
- assert.equal(h.calls.length,5);
+ assert.equal(h.calls.length,3);
  assert.equal(h.calls[1].url,'https://private.example.com/api/search?q=music');
- assert.equal(h.calls[2].url,'https://account.example.com/api/account/visual-mode');
- assert.equal(h.calls[3].url,'https://account.example.com/api/account/dm');
- assert.equal(h.calls[4].url,'https://account.example.com/api/account/dm/rooms');
+ assert.equal(h.calls[2].url,'https://account.example.com/api/account/sidecar');
  for(const call of h.calls.slice(2))assert.equal(call.headers.Cookie,'__Host-xy_session='+cookie);
  assert.equal(JSON.stringify(result).includes(cookie),false);
  const before=h.calls.length;
