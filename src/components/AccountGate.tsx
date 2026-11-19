@@ -153,12 +153,17 @@ export default function AccountGate({ children }: { children: ReactNode }) {
       if(cancelled||busy||(!force&&Date.now()-lastCheck<300000))return;
       busy=true;lastCheck=Date.now();const epoch=authEpoch.current;
       try{
-        const {user:existing}=await api('/session');
+        const {user:existing,historyVersion}=await api('/session');
         if(cancelled||authEpoch.current!==epoch)return;
         if(!existing?.id)throw new Error('Invalid session response');
         if(banRef.current){localStorage.removeItem(BAN_LOCK_KEY);setBanRecord(null);}
+        const wasAuthenticated=serverAuthenticated.current;
+        const sameAccount=active.current?.id===existing.id;
         serverAuthenticated.current=true;
-        await initialize(existing,false,active.current?.id===existing.id);
+        if(wasAuthenticated&&sameAccount&&!cache.current.dirty&&Number.isSafeInteger(historyVersion)&&historyVersion===cache.current.version){
+          active.current=existing;setUser(existing);
+          localStorage.setItem(SESSION_HINT_KEY,JSON.stringify(existing));
+        }else await initialize(existing,false,sameAccount);
       }catch(err:any){
         if(cancelled||authEpoch.current!==epoch)return;
         serverAuthenticated.current=false;
