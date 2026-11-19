@@ -169,7 +169,7 @@ function gasRequest(request) {
           if(typeof metadata?.mode==='string')sidecar.mode=metadata.mode;
           if(Array.isArray(metadata?.threads))sidecar.threads=metadata.threads.slice(0,16).map(function(t){return {id:t.id,status:t.status,incoming:t.incoming,updatedAt:t.updatedAt,lastMine:t.lastMine,label:t.label};});
           if(Array.isArray(metadata?.rooms))sidecar.rooms=metadata.rooms.slice(0,10).map(function(r){return {id:r.id,status:r.status,lastAt:r.lastAt,lastMine:r.lastMine,name:r.name};});
-          try{CacheService.getScriptCache().put(sidecarKey,JSON.stringify(sidecar),20);}catch(_){}
+          try{CacheService.getScriptCache().put(sidecarKey,JSON.stringify(sidecar),60);}catch(_){}
         }
       }catch(_){
         // Optional failures must not prevent video/search data.
