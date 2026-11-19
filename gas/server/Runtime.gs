@@ -141,8 +141,8 @@ function gasRequest(request) {
     var response,sidecar=null;
     var shouldBundle=method==='GET'&&request.sidecar===true&&accountCookie
       &&/^\/api\/(?:recommendations|trending|search|suggestions|video|channel|channels|home|mix|shorts|shorts-ranking|user|playlists|playlist|sync)(?:[/?]|$)/.test(request.path);
-    // Keep state on every YouTube response while avoiding 3 upstream status reads
-    // per video card. Cache is isolated by GAS browser session and account origin.
+    // One metadata request per cached sidecar replaces three upstream status reads.
+    // Cached sidecars are isolated by GAS browser session and account origin.
     var sidecarKey=shouldBundle?'xyg:sidecar:'+gasHash_(request.session+account):'';
     if(sidecarKey)try{
       var savedSidecar=CacheService.getScriptCache().get(sidecarKey);
@@ -155,18 +155,21 @@ function gasRequest(request) {
       try{
         var batch=UrlFetchApp.fetchAll([
           Object.assign({url:target+request.path},options),
-          Object.assign({url:account+'/api/account/visual-mode'},metaOptions),
-          Object.assign({url:account+'/api/account/dm'},metaOptions),
-          Object.assign({url:account+'/api/account/dm/rooms'},metaOptions)
+          Object.assign({url:account+'/api/account/sidecar'},metaOptions)
         ]);
         response=batch[0];
-        var visual=gasJsonResponse_(batch[1]),messages=gasJsonResponse_(batch[2]),rooms=gasJsonResponse_(batch[3]);
-        if(visual||messages||rooms){
+        var metadata=gasJsonResponse_(batch[1]);
+        var metadataBanned=false;
+        if(batch[1]&&batch[1].getResponseCode()===403){
+          try{metadataBanned=JSON.parse(batch[1].getContentText()).code==='ACCOUNT_BANNED';}catch(_){}
+        }
+        if(metadata||metadataBanned){
           sidecar={capturedAt:Date.now()};
-          if(typeof visual?.mode==='string')sidecar.mode=visual.mode;
-          if(Array.isArray(messages?.threads))sidecar.threads=messages.threads.map(function(t){return {id:t.id,status:t.status,incoming:t.incoming,updatedAt:t.updatedAt,lastMine:t.lastMine,label:t.label};});
-          if(Array.isArray(rooms?.rooms))sidecar.rooms=rooms.rooms.map(function(r){return {id:r.id,status:r.status,lastAt:r.lastAt,lastMine:r.lastMine,name:r.name};});
-          try{CacheService.getScriptCache().put(sidecarKey,JSON.stringify(sidecar),12);}catch(_){}
+          if(metadataBanned)sidecar.banned=true;
+          if(typeof metadata?.mode==='string')sidecar.mode=metadata.mode;
+          if(Array.isArray(metadata?.threads))sidecar.threads=metadata.threads.slice(0,16).map(function(t){return {id:t.id,status:t.status,incoming:t.incoming,updatedAt:t.updatedAt,lastMine:t.lastMine,label:t.label};});
+          if(Array.isArray(metadata?.rooms))sidecar.rooms=metadata.rooms.slice(0,10).map(function(r){return {id:r.id,status:r.status,lastAt:r.lastAt,lastMine:r.lastMine,name:r.name};});
+          try{CacheService.getScriptCache().put(sidecarKey,JSON.stringify(sidecar),20);}catch(_){}
         }
       }catch(_){
         // Optional failures must not prevent video/search data.
